@@ -458,7 +458,7 @@ void AParamotorActor::UpdateEngineRPM(float DeltaTime)
 	// Propeller torque from blade element theory
 	float AirspeedForTorque = 0.0f;
 	if (AActor* ParentActor = GetAttachParentActor())
-		AirspeedForTorque = ParentActor->GetVelocity().Size() / 100.0f;
+		AirspeedForTorque = ParentActor->GetVelocity().Size()  / CM_PER_M;
 	float PropTorque = GetPropTorqueNM(AirspeedForTorque);
 	float PropTorqueAtEngine = PropTorque / PROP_REDUCTION_RATIO;
 
@@ -675,7 +675,7 @@ void AParamotorActor::StopEngine()
 	if (ExhaustAudio) ExhaustAudio->Stop();
 	if (PropWindAudio) PropWindAudio->Stop();
 
-	UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Engine stopped (temp=%.1fC fuel=%.0f%%)"), EngineTemp, FuelLevel * 100.0f);
+	UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Engine stopped (temp=%.1fC fuel=%.0f%%)"), EngineTemp, FuelLevel * PERCENT_FACTOR);
 }
 
 void AParamotorActor::ToggleFuelCutoff()
@@ -714,13 +714,13 @@ AParamotorActor::FBladeElementResult AParamotorActor::ComputeBladeElement(float 
 	FBladeElementResult Result = {0.0f, 0.0f};
 
 	float PropRPM = GetPropRPM();
-	float AltitudeM = GetActorLocation().Z / 100.0f;
+	float AltitudeM = GetActorLocation().Z  / CM_PER_M;
 	float Rho = AirDensityAtAltitude(AltitudeM);
 	float Omega = PropRPM * 2.0f * PI / 60.0f;
-	float PropRadius = PROP_DIAMETER_CM / 2.0f / 100.0f;
+	float PropRadius = PROP_DIAMETER_CM / 2.0f  / CM_PER_M;
 	float HubRadius = 0.05f;
-	float BladeChord = PROP_CHORD_CM / 100.0f;
-	float PitchAngle = FMath::Atan2(PROP_PITCH_CM / 100.0f, 2.0f * PI * PropRadius);
+	float BladeChord = PROP_CHORD_CM  / CM_PER_M;
+	float PitchAngle = FMath::Atan2(PROP_PITCH_CM  / CM_PER_M, 2.0f * PI * PropRadius);
 
 	int32 NumElements = (int32)PROP_BLADE_ELEMENTS;
 	float dr = (PropRadius - HubRadius) / NumElements;

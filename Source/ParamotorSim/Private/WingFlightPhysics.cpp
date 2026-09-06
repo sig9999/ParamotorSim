@@ -76,7 +76,7 @@ FVector ApparentWind = Wind - Vel;
 // === HORIZONTAL AIRSPEED (for lift) ===
 FVector HorizApparent = FVector(ApparentWind.X, ApparentWind.Y, 0.0f);
 float HorizSpeed = HorizApparent.Size();
-float Vms = HorizSpeed / 100.0f;
+float Vms = HorizSpeed  / CM_PER_M;
 // m/s
 // === AERODYNAMIC COEFFICIENTS — PER-SIDE STALL MODEL ===
 // Each half of the wing has its own AoA based on that side's brake input.
@@ -93,7 +93,7 @@ float StallAoA = WingModel.StallAoA;
 // and the airflow takes time to respond. This gives the "spongy" feel.
 // Higher airspeed = faster response (more air pressure on trailing edge).
 
-float BrakeLagSpeed = 1.0f / (LINE_LENGTH_CM / 100.0f / 160.0f + 0.15f);  // Line wave (c~160m/s) + hand motion (~0.15s)
+float BrakeLagSpeed = 1.0f / (LINE_LENGTH_CM  / CM_PER_M / 160.0f + 0.15f);  // Line wave (c~160m/s) + hand motion (~0.15s)
 // Faster response at higher airspeed
 	EffectiveLeftBrake =
 FMath::FInterpTo(EffectiveLeftBrake, LeftBrakeAmount, DeltaTime, BrakeLagSpeed);
@@ -104,7 +104,7 @@ EffectiveRightBrake = FMath::FInterpTo(EffectiveRightBrake, RightBrakeAmount, De
 
 float EarlyPawnZ = Pawn->GetActorLocation().Z;
 float EarlyGZ = GetGroundZ(Pawn->GetActorLocation());
-float AltitudeM = FMath::Max(0.0f, (EarlyPawnZ - EarlyGZ) / 100.0f);
+float AltitudeM = FMath::Max(0.0f, (EarlyPawnZ - EarlyGZ)  / CM_PER_M);
 Rho = AirDensityAtAltitude(AltitudeM);  // ISA altitude-dependent air density
 // Wind gradient: power law profile V(z) = V_ref × (z/z_ref)^α
 // α = 0.10 for open water/coast, 0.15 for open terrain, 0.25 for suburbs
@@ -133,7 +133,7 @@ FVector TurbulenceVelocity = (ShiftedWindDirFlight * TurbLongState  // Along win
 ApparentWind = (AltitudeWind + TurbulenceVelocity) - Vel;
 HorizApparent = FVector(ApparentWind.X, ApparentWind.Y, 0.0f);
 HorizSpeed = HorizApparent.Size();
-Vms = HorizSpeed / 100.0f;
+Vms = HorizSpeed  / CM_PER_M;
 // FlightTurbulence is now zero — forces come from the polar on the modified apparent wind
 FlightTurbulence = FVector::ZeroVector;
 // === REAL CELL PRESSURE MODEL ===
@@ -257,7 +257,7 @@ float WingAltitudeAGL = Pawn->GetActorLocation().Z - GetGroundZ(Pawn->GetActorLo
 float WingspanM = FMath::Sqrt(WingModel.WingArea * WingModel.AR);  // b = sqrt(AR * S)
 // Ground effect reduces induced drag near ground: factor = 1 - exp(-h / (b/2))
 // At h=0: 0 (full reduction). At h=b/2: 63% remaining. At h→∞: 1 (no reduction).
-float GroundEffectFactor = 1.0f - FMath::Exp(-WingAltitudeAGL / 100.0f / (WingspanM * 0.5f));
+float GroundEffectFactor = 1.0f - FMath::Exp(-WingAltitudeAGL  / CM_PER_M / (WingspanM * 0.5f));
 // Apply to induced drag portion only (separate profile from induced)
 float BaseAirfoilCD0 = 0.0082f;
 float ProfileCD0 = WingModel.CD0 * GetTrimmerDragFactor();
@@ -418,7 +418,7 @@ float CDWing = (LeftCD + RightCD) * 0.5f;
 // === FORCES — per side (Newtons) ===
 // Use total apparent airspeed (includes vertical component from sink/climb/thermals)
 // for dynamic pressure — vertical air movement contributes to lift.
-float Vtot = ApparentWind.Size() / 100.0f;
+float Vtot = ApparentWind.Size()  / CM_PER_M;
 float LeftLiftN = 0.5f * Rho * Vtot * Vtot * HalfArea * LeftCL;
 float RightLiftN = 0.5f * Rho * Vtot * Vtot * HalfArea * RightCL;
 float LiftN = LeftLiftN + RightLiftN;
@@ -498,7 +498,7 @@ LineTensionD = TotalLoadN * LoadFractionD;
 // At 100N on 7m line: ΔL = 100·7 / (1.77e-6 · 5e9) = 0.079 m = 7.9 cm (≈1.1%)
 float LineCrossSectionArea = 1.77e-6f;  // m² (1.5mm diameter paracord)
 float LineYoungsModulus = 5.0e9f;       // Pa (nylon/Dyneema blend)
-float LineLengthM = LINE_LENGTH_CM / 100.0f;
+float LineLengthM = LINE_LENGTH_CM  / CM_PER_M;
 float LineStiffnessNPerM = LineCrossSectionArea * LineYoungsModulus / LineLengthM;  // N/m
 float BaseLineLengthCm = LINE_LENGTH_CM;
 LineStretchA = (LineTensionA / LineStiffnessNPerM)  * CM_PER_M;  // cm
@@ -514,7 +514,7 @@ float MeanChordCm = (WingspanM > 0.0f) ? (WingModel.WingArea / WingspanM) * CM_P
 float ADistanceCm = MeanChordCm * 0.6f;  // A at ~15% chord, D at ~75% chord → 60% span
 float StretchAoAEffect = FMath::Atan2((LineStretchA - LineStretchD), ADistanceCm) * RAD_TO_DEG;
 // Per-side drag (for asymmetric yaw)
-float VmsTotal = ApparentWind.Size() / 100.0f;
+float VmsTotal = ApparentWind.Size()  / CM_PER_M;
 FVector ApparentDir = ApparentWind.GetSafeNormal();
 float LeftDragN = 0.5f * Rho * VmsTotal * VmsTotal * HalfArea * LeftCD;
 float RightDragN = 0.5f * Rho * VmsTotal * VmsTotal * HalfArea * RightCD;
@@ -603,7 +603,7 @@ float GravityAccel = GRAVITY_CM_S2;
 // Brakes slow you below trim (more drag, more lift, slower speed)
 // This creates the "hands-off" stability of a real paraglider
 
-float CurrentSpeedMs = Vel.Size() / 100.0f;
+float CurrentSpeedMs = Vel.Size()  / CM_PER_M;
 float SpeedError = CurrentSpeedMs - TrimSpeedMs;
 // + = too fast, - = too slow
 // SPEED STABILITY — emerges naturally from the drag polar.
@@ -652,7 +652,7 @@ float PendulumBrakeAccel = (WingOnlyDragN / TotalMassKg)  * CM_PER_M / LineLengt
 // S_effective = pilot drag + wing drag + line drag + wing lift damping
 float PitchDampArea = PilotDragArea * CDPilot + WingModel.WingArea * CDWing
 	+ LineDragArea * CDLine
-	+ WingModel.WingArea * (WingspanM / (2.0f * LineLength / 100.0f));  // lift-derived pitch damping
+	+ WingModel.WingArea * (WingspanM / (2.0f * LineLength  / CM_PER_M));  // lift-derived pitch damping
 float PitchDampCoeff = 0.5f * Rho * FMath::Max(0.1f, Vms) * PitchDampArea;  // N·s/m
 float DampingRatio = PitchDampCoeff / (2.0f * TotalMassKg * PendulumOmega);
 DampingRatio = FMath::Clamp(DampingRatio, 0.01f, 10.0f);  // NaN safety only
@@ -774,7 +774,7 @@ float YawRate = FMath::Clamp(WingYawRate, -360.0f, 360.0f);  // NaN safety only
 // === ROLL DYNAMICS — TORQUE/INERTIA INTEGRATION ===
 // Coordinated turn: equilibrium bank for current yaw rate
 // tan(bank) = V × yaw_rate / g (real centripetal balance)
-float VmsFlight = HorizSpeed / 100.0f;
+float VmsFlight = HorizSpeed  / CM_PER_M;
 float TargetBank = (VmsFlight > 0.5f) ? FMath::Atan(VmsFlight  * CM_PER_M * YawRate * PI_DIV_180 / GravityAccel) * RAD_TO_DEG : 0.0f;
 // No clamp - bank limited by line geometry and collapse physics
 // Roll moments (all in N·m):
@@ -785,7 +785,7 @@ float CollapseRollMoment = (RightCollapseAmount - LeftCollapseAmount) * LiftN * 
 // 4. Prop torque (PropTorqueNM, computed above)
 // 5. Coordination spring: pendulum pulls bank toward coordinated angle
 //    Spring constant = I · ω² where ω = √(g/L) is pendulum frequency
-float PendulumOmegaRoll = FMath::Sqrt(GRAVITY_MS2 / (LINE_LENGTH_CM / 100.0f));  // rad/s
+float PendulumOmegaRoll = FMath::Sqrt(GRAVITY_MS2 / (LINE_LENGTH_CM  / CM_PER_M));  // rad/s
 float CoordSpringMoment = WingInertiaRoll * PendulumOmegaRoll * PendulumOmegaRoll
 	* (TargetBank - CurrentRoll) * PI_DIV_180;  // N·m
 // 6. Turbulence roll moment: lateral gusts create asymmetric lift across the span
@@ -846,7 +846,7 @@ float PitchTarget = 0.0f;
 // Thrust pitch: REMOVED — handled by pendulum dynamics + 1:1 pendulum coupling
 // (thrust drives PendulumAngle, which drives PitchTarget through the coupling below)
 // Collapse causes wing to pitch forward (surge from lift loss)
-	PitchTarget -= FrontalCollapseAmount * FMath::Atan2(LiftN * 0.25f * WingspanM, TotalMassKg * GRAVITY_MS2 * (LINE_LENGTH_CM / 100.0f)) * RAD_TO_DEG;
+	PitchTarget -= FrontalCollapseAmount * FMath::Atan2(LiftN * 0.25f * WingspanM, TotalMassKg * GRAVITY_MS2 * (LINE_LENGTH_CM  / CM_PER_M)) * RAD_TO_DEG;
 // Speed-pitch: apparent wind shift at higher speeds (geometric)
 // θ = atan(ΔV / V) — wing pitches forward to reduce AoA at higher speed
 if (Vms > 1.0f && SpeedError > 0.0f)
@@ -916,7 +916,7 @@ WingPitchAngle += WingPitchRate * DeltaTime;
 	// Roll damping includes wing span effect (tips move more than center)
 	float RollDampArea = PilotDragArea * CDPilot + WingModel.WingArea * CDWing
 		+ LineDragArea * CDLine
-		+ WingModel.WingArea * (WingspanM / (2.0f * LineLength / 100.0f));  // roll geometry
+		+ WingModel.WingArea * (WingspanM / (2.0f * LineLength  / CM_PER_M));  // roll geometry
 	float RollDampCoeff = 0.5f * Rho * FMath::Max(0.1f, Vms) * RollDampArea;
 	float RollDampingRatio = RollDampCoeff / (2.0f * TotalMassKg * RollPendulumOmega);
 	RollDampingRatio = FMath::Clamp(RollDampingRatio, 0.01f, 10.0f);  // NaN safety only
@@ -1092,7 +1092,7 @@ if (bRisersConnected)
 	FlightLogTimer += DeltaTime;
 if (FlightLogTimer > 1.0f)	{
 		FlightLogTimer = 0.0f;
-UE_LOG(LogTemp, Warning, TEXT("WingActor: FLIGHT speed=%.1f mph climb=%.0f fpm alt=%.0fm pend=%.1f° pitch=%.0f° wpitch=%.1f° thrust=%.0f yaw=%.1f bank=%.1f proll=%.1f L=%.2f R=%.2f brakeL=%.1f brakeR=%.1f wshift=%.2f turb=%.1f trim=%.1f spiral=%.0f%% wl=%.1f | LineTension A=%.0f B=%.0f C=%.0f D=%.0f N stretchA=%.2fcm"),			Airspeed / 100.0f * MPH_PER_MS, ClimbRate / 100.0f * 196.85f, AltitudeM,			PendulumAngle * RAD_TO_DEG, PilotPitch, WingPitchAngle, ThrustAccel, YawRate, CurrentRoll,
+UE_LOG(LogTemp, Warning, TEXT("WingActor: FLIGHT speed=%.1f mph climb=%.0f fpm alt=%.0fm pend=%.1f° pitch=%.0f° wpitch=%.1f° thrust=%.0f yaw=%.1f bank=%.1f proll=%.1f L=%.2f R=%.2f brakeL=%.1f brakeR=%.1f wshift=%.2f turb=%.1f trim=%.1f spiral=%.0f%% wl=%.1f | LineTension A=%.0f B=%.0f C=%.0f D=%.0f N stretchA=%.2fcm"),			Airspeed  / CM_PER_M * MPH_PER_MS, ClimbRate  / CM_PER_M * 196.85f, AltitudeM,			PendulumAngle * RAD_TO_DEG, PilotPitch, WingPitchAngle, ThrustAccel, YawRate, CurrentRoll,
 			PilotRollAngle,			LeftCL, RightCL, EffectiveLeftBrake, EffectiveRightBrake, WeightShift, TurbStrength,			TrimSpeedMs * MPH_PER_MS, SpiralDiveFactor * PERCENT_FACTOR, WingLoading,
 			LineTensionA, LineTensionB, LineTensionC, LineTensionD, LineStretchA);
 }
@@ -1260,7 +1260,7 @@ bool AWingActor::HandleLanding(ACharacter* Char, float DeltaTime, FVector& NewVe
 		return false;  // Not touching ground or moving up
 
 	// === GROUND CONTACT (real collision response) ===
-	float LandingSpeedMs = -NewVel.Z / 100.0f;
+	float LandingSpeedMs = -NewVel.Z  / CM_PER_M;
 
 	// Injury check
 	AParamotorCharacter* ParamotorChar = Cast<AParamotorCharacter>(Char);
