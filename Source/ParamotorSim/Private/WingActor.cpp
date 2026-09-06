@@ -46,6 +46,12 @@ LineMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 LineMesh->SetSimulatePhysics(false);
 LineMesh->SetCastShadow(false);
 LineMesh->SetVisibility(false);
+
+	// Zero-init cell arrays (raw C arrays are not default-initialized)
+	FMemory::Memzero(CellPressure, sizeof(CellPressure));
+	FMemory::Memzero(CellFill, sizeof(CellFill));
+	FMemory::Memzero(CellLift, sizeof(CellLift));
+	FMemory::Memzero(CellDrag, sizeof(CellDrag));
 }
 
 // ============================================================
@@ -54,6 +60,9 @@ LineMesh->SetVisibility(false);
 
 void AWingActor::BeginPlay(){
 	Super::BeginPlay();
+	// Cache game instance (avoids per-frame GetWorld()->GetGameInstance calls)
+	if (GetWorld())
+		CachedGameInstance = GetWorld()->GetGameInstance<UParamotorGameInstance>();
 // Load canopy material — use engine VertexColorMaterial (shows vertex colors as emissive)
 // This is in EngineDebugMaterials, not EngineMaterials
 	CanopyMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineDebugMaterials/VertexColorMaterial.VertexColorMaterial"));
@@ -68,6 +77,8 @@ UE_LOG(LogTemp, Warning, TEXT("WingActor: All canopy materials not found, using 
 	else	{
 		UE_LOG(LogTemp, Warning, TEXT("WingActor: Loaded canopy material"));
 }
+	// Cache line mesh material (was per-frame LoadObject — major perf issue)
+	LineMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/EmissiveMeshMaterial.EmissiveMeshMaterial"));
 // Initialize cloth from new paraglider mesh
 	InitCloth();
 InitLines();
@@ -301,6 +312,23 @@ if (GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_WorldStatic, Query
 return 0.0f;
 }
 
+float AWingActor::GetCachedGroundZ(FVector Pos)
+{
+	// If close to cached wing position, reuse the cached value
+	if (bGroundZCachedThisTick)
+	{
+		FVector WingPos = GetActorLocation();
+		float DistSq = FVector::DistSquared2D(Pos, WingPos);
+		if (DistSq < 10000.0f)  // Within 100cm of wing position
+			return CachedWingGroundZ;
+	}
+	// Otherwise do a fresh trace and cache it
+	float Z = GetGroundZ(Pos);
+	CachedWingGroundZ = Z;
+	bGroundZCachedThisTick = true;
+	return Z;
+}
+
 // ============================================================
 // COMMON HELPERS — extracted from duplicated code across functions
 // ============================================================
@@ -331,7 +359,6 @@ void AWingActor::UpdateDynamicWind(float DeltaTime, float GustAmplitude)
 	// Gusts are fully handled by the von Kármán/Dryden turbulence model below.
 	// No separate sine-based gusts — the Dryden filter produces realistic
 	// low-frequency wind variations with proper spectral content.
-	float GustTotal = 0.0f;
 
 	// === VON KÁRMÁN TURBULENCE (Dryden approximation) ===
 	// The von Kármán spectrum describes atmospheric turbulence energy distribution:
@@ -352,9 +379,9 @@ void AWingActor::UpdateDynamicWind(float DeltaTime, float GustAmplitude)
 	// Each gets its own white noise input filtered through the Dryden filter.
 
 	float BaseWind = 0.0f;  // No fake default wind
-	if (GetWorld() && GetWorld()->GetGameInstance<UParamotorGameInstance>())
+	if (CachedGameInstance)
 	{
-		BaseWind = FMath::Max(0.0f, GetWorld()->GetGameInstance<UParamotorGameInstance>()->WindSpeed);
+		BaseWind = FMath::Max(0.0f, CachedGameInstance->WindSpeed);
 	}
 
 	// Turbulence intensity: σ in m/s
@@ -428,12 +455,24 @@ void AWingActor::UpdateDynamicWind(float DeltaTime, float GustAmplitude)
 	WindDirShift = TurbLatState / FMath::Max(1.0f, BaseWind);  // Ratio of lateral to base wind
 
 	// ASSIGN wind speed each frame (not accumulate — gusts are oscillations, not accelerations)
-	CurrentWindSpeed = FMath::Max(0.0f, BaseWind + GustTotal + WindTurbulence);  // No cap - physical
+	CurrentWindSpeed = FMath::Max(0.0f, BaseWind + WindTurbulence);  // No cap - physical
 }
 
 void AWingActor::Tick(float DeltaTime){
 	Super::Tick(DeltaTime);
+	// Invalidate ground Z cache at start of each tick
+	InvalidateGroundZCache();
 if (WingState == EWingState::InBag) return;
+// Update dynamic wind for ALL states (not just Inflated/Flying).
+// Without this, wind can get stuck at 0 if turbulence drops it during
+// a brief Inflated state and the wing then returns to Inflating/Connected.
+if (WingState != EWingState::Flying)  // Flight physics updates wind separately
+{
+	float GustAmp = 0.0f;
+	if (CachedGameInstance)
+		GustAmp = CachedGameInstance->WindGusts;
+	UpdateDynamicWind(DeltaTime, GustAmp);
+}
 SimulateCloth(DeltaTime);
 SimulateLines(DeltaTime);
 // When connected, wing follows player via line tension
@@ -586,6 +625,13 @@ UpdateFlight(DeltaTime);
 			UE_LOG(LogTemp, Warning, TEXT("END_TICK: posZ=%.0f velZ=%.0f state=%d"), GetActorLocation().Z, WingVel.Z, (int32)WingState);
 		}
 	}
+
+	// Notify paramotor of wing position so A-arms can follow
+	if (ConnectedParamotor)
+	{
+		ConnectedParamotor->UpdateWingTarget(GetActorLocation(), bRisersConnected);
+	}
+
 UpdateCanopyMesh();
 UpdateLineMesh();
 }

@@ -1276,8 +1276,18 @@ void AParamotorCharacter::MoveForward(float Value)
 
 void AParamotorCharacter::MoveRight(float Value)
 {
-	// During flight, the wing physics control all movement — ignore WASD input
-	if (bWeightShiftActive) return;
+	// During flight, A/D = weight shift (not strafe)
+	// A = left weight shift (Value = -1), D = right weight shift (Value = +1)
+	if (bWeightShiftActive)
+	{
+		float Dt = GetWorld()->GetDeltaSeconds();
+		// Direct set from key input (instant response, smoothed by FInterpTo)
+		WeightShiftTarget = FMath::Clamp(Value, -1.0f, 1.0f);
+		WeightShift = FMath::FInterpTo(WeightShift, WeightShiftTarget, Dt, 6.0f);
+		// Visual roll of character mesh (lean into the shift)
+		WeightShiftVisualRoll = FMath::FInterpTo(WeightShiftVisualRoll, WeightShift * 15.0f, Dt, 5.0f);
+		return;
+	}
 	if (Value != 0.0f && GetController())
 	{
 		const FRotator YawRotation(0.0f, GetController()->GetControlRotation().Yaw, 0.0f);
@@ -1287,32 +1297,15 @@ void AParamotorCharacter::MoveRight(float Value)
 
 void AParamotorCharacter::Turn(float Value)
 {
-	// While flying, mouse look = WEIGHT SHIFT, not yaw rotation.
-	// The controller sets bWeightShiftActive when the wing is in flight.
-	// Looking left shifts weight left (lowers left riser → turns left).
-	// Looking right shifts weight right (lowers right riser → turns right).
-	if (bWeightShiftActive)
+	// Mouse X = camera orbit.
+	// When flying, WingActor controls player rotation (bUseControllerRotationYaw=false),
+	// so this only orbits the camera. Weight shift is controlled by A/D keys.
+	// On the ground, this turns the player (bUseControllerRotationYaw=true).
+	AddControllerYawInput(Value);
+
+	// Decay weight shift when not flying
+	if (!bWeightShiftActive)
 	{
-		// Accumulate weight shift target from mouse input
-		// Positive Value = looking right → weight shift right
-		WeightShiftTarget = FMath::Clamp(WeightShiftTarget + Value * 0.5f, -1.0f, 1.0f);
-
-		// Smoothly interpolate weight shift (body has inertia)
-		float Dt = GetWorld()->GetDeltaSeconds();
-		WeightShift = FMath::FInterpTo(WeightShift, WeightShiftTarget, Dt, 4.0f);
-
-		// Visual roll of character mesh (lean into the shift)
-		WeightShiftVisualRoll = FMath::FInterpTo(WeightShiftVisualRoll, WeightShift * 15.0f, Dt, 5.0f);
-
-		// Camera can still look around (yaw the camera only, not the character body)
-		AddControllerYawInput(Value);
-	}
-	else
-	{
-		// Ground mode: normal yaw
-		AddControllerYawInput(Value);
-
-		// Decay weight shift when not flying
 		float Dt = GetWorld()->GetDeltaSeconds();
 		WeightShiftTarget = FMath::FInterpTo(WeightShiftTarget, 0.0f, Dt, 3.0f);
 		WeightShift = FMath::FInterpTo(WeightShift, 0.0f, Dt, 3.0f);

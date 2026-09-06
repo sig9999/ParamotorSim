@@ -23,7 +23,6 @@
 
 void AWingActor::UpdateFlight(float DeltaTime){
 	// ENTRY LOG — verify this function is reached
-	static float EntryLogTimer = 0.0f;
 	EntryLogTimer += DeltaTime;
 	if (EntryLogTimer > 1.0f)
 	{
@@ -33,7 +32,6 @@ void AWingActor::UpdateFlight(float DeltaTime){
 	}
 	if (WingState != EWingState::Flying) return;
 if (!bRisersConnected) {
-	static float RisersLogTimer = 0.0f;
 	RisersLogTimer += DeltaTime;
 	if (RisersLogTimer > 1.0f) { RisersLogTimer = 0.0f; UE_LOG(LogTemp, Error, TEXT("UpdateFlight: bRisersConnected=false! WingState=Flying")); }
 	return;
@@ -42,7 +40,6 @@ if (!bRisersConnected) {
 APawn* Pawn = nullptr;
 if (ConnectedParamotor)		Pawn = Cast<APawn>(ConnectedParamotor->GetAttachParentActor());
 if (!Pawn) {
-	static float PawnLogTimer = 0.0f;
 	PawnLogTimer += DeltaTime;
 	if (PawnLogTimer > 1.0f) { PawnLogTimer = 0.0f; UE_LOG(LogTemp, Error, TEXT("UpdateFlight: Pawn=null! ConnectedParamotor=%s"), ConnectedParamotor ? TEXT("yes") : TEXT("no")); }
 	return;
@@ -69,8 +66,8 @@ ClimbRate = Vel.Z;
 // === WIND (dynamic — gusts continue in flight) ===
 	// Use unified wind update helper (replaces duplicated gust code)
 	float FlightGustAmp = 0.0f;  // No fake default gust
-	if (UParamotorGameInstance* GI = GetWorld()->GetGameInstance<UParamotorGameInstance>())
-		FlightGustAmp = GI->WindGusts;
+	if (CachedGameInstance)
+		FlightGustAmp = CachedGameInstance->WindGusts;
 	UpdateDynamicWind(DeltaTime, FlightGustAmp);
 FVector ShiftedWindDirFlight = WindDirection.RotateAngleAxis(WindDirShift * 180.0f / PI, FVector(0, 0, 1));
 FVector Wind = ShiftedWindDirFlight * CurrentWindSpeed * 100.0f;
@@ -163,11 +160,11 @@ UpdateCellPressure(DeltaTime, Vms, EffectiveLeftBrake, EffectiveRightBrake);
 // - Strong (ΔT=10°C): 5-8 m/s
 // - Thermals are localized columns ~50-200m diameter, spaced ~500m apart
 float ThermalLiftMs = 0.0f;
-if (UParamotorGameInstance* GI = GetWorld()->GetGameInstance<UParamotorGameInstance>())
+if (CachedGameInstance)
 {
-	float TimeOfDay = GI->TimeOfDay;  // 0-24
-	float CloudCover = GI->CloudCover;  // 0-1
-	float Temperature = GI->Temperature;  // Celsius
+	float TimeOfDay = CachedGameInstance->TimeOfDay;  // 0-24
+	float CloudCover = CachedGameInstance->CloudCover;  // 0-1
+	float Temperature = CachedGameInstance->Temperature;  // Celsius
 
 	// Sun heating: peaks at solar noon (13:00), zero at night
 	// Ground temperature excess: ΔT = (T_ambient - 15) × sun_factor × (1 - cloud)
@@ -545,8 +542,11 @@ LoadFractionA -= BrakeShiftFraction * 0.50f;  // A loses 50% of the shifted load
 LoadFractionB -= BrakeShiftFraction * 0.25f;  // B loses 25% (mid-front)
 LoadFractionC += BrakeShiftFraction * 0.25f;  // C gains 25% (mid-rear)
 LoadFractionD += BrakeShiftFraction * 0.50f;  // D gains 50% (rearmost, closest to deflected TE)
-// No clamps — the pressure distribution naturally bounds the fractions
-// (A can't go below 0 because the LE still carries pressure even at full brake)
+// Clamp to prevent negative tension (can happen at extreme brake + low speed)
+LoadFractionA = FMath::Max(0.05f, LoadFractionA);
+LoadFractionB = FMath::Max(0.05f, LoadFractionB);
+LoadFractionC = FMath::Max(0.01f, LoadFractionC);
+LoadFractionD = FMath::Max(0.01f, LoadFractionD);
 // Compute per-group tension
 LineTensionA = TotalLoadN * LoadFractionA;
 LineTensionB = TotalLoadN * LoadFractionB;
@@ -732,13 +732,31 @@ float PendulumAngularAccel = PendulumDriveAccel + PendulumBrakeAccel
 PendulumAngularVel += PendulumAngularAccel * DeltaTime;
 PendulumAngle += PendulumAngularVel * DeltaTime;
 // No clamp — pendulum angle limited by line geometry and gravity
-// === PILOT PITCH TRANSITION (upright → seated) ===
-// After takeoff, the pilot transitions from standing upright to seated in the harness.
-// This happens over ~2 seconds, with a slight overshoot from the pendulum swing.
-// The seat toggle (G key) controls whether the target is seated or standing.
+// === PILOT PITCH TRANSITION (launch → upright → seated) ===
+// Real paramotoring launch sequence:
+// 1. At takeoff: pilot is upright, motor torque tilts them slightly forward
+// 2. For first ~3s: pilot hangs upright, not yet in seat (more drag, different angle)
+// 3. After ~3s: pilot swings legs forward and settles into harness seat
+// 4. Body reclines from 0° (upright) to -80° (seated) over ~2s
+// 5. Motor torque tilt fades as pilot settles and stabilizes
+// The G key can still toggle seated/standing after the auto-transition.
+if (bAutoSeatPending)
+{
+	LaunchTimer += DeltaTime;
+	// Auto-seat after 3 seconds of flight (real timing)
+	if (LaunchTimer > 3.0f)
+	{
+		bSeated = true;
+		bAutoSeatPending = false;
+	}
+}
+// Launch angle offset: motor torque tilts pilot forward, fades as they settle
+float LaunchAngleFade = bAutoSeatPending ? FMath::Max(0.0f, 1.0f - LaunchTimer / 5.0f) : 0.0f;
+LaunchAngleOffset = 5.0f * LaunchAngleFade;  // Up to 5° forward tilt from torque
 	SeatTransition = FMath::FInterpTo(SeatTransition, bSeated ? 1.0f : 0.0f, DeltaTime, 2.0f);
 	// Seated pilot pitch: -80° (reclined in harness). Standing: 0° (upright).
-	PilotPitchTarget = bSeated ? -80.0f : 0.0f;
+	// Add launch angle offset (forward tilt from motor torque at takeoff).
+	PilotPitchTarget = (bSeated ? -80.0f : 0.0f) + LaunchAngleOffset;
 	PilotPitch = FMath::FInterpTo(PilotPitch, PilotPitchTarget, DeltaTime, 3.0f);
 	// Pilot drag area is now lerped directly (0.5 m² standing → 0.3 m² seated).
 	// DragReductionFromSeat is kept for HUD/visual compatibility but no longer
@@ -995,7 +1013,6 @@ Pawn->SetActorRotation(NewRot);
 // Verify the rotation actually stuck (not overridden by something else)
 FRotator VerifyRot = Pawn->GetActorRotation();
 	{
-		static float RollDebugTimer = 0.0f;
 		RollDebugTimer += DeltaTime;
 		if (RollDebugTimer > 0.2f)
 		{
@@ -1189,6 +1206,9 @@ ThrottleRate = 0.0f;
 PilotPitch = 0.0f;
 PilotPitchTarget = 0.0f;
 bSeated = false;
+bAutoSeatPending = false;
+LaunchTimer = 0.0f;
+LaunchAngleOffset = 0.0f;
 SeatTransition = 0.0f;
 DragReductionFromSeat = 0.0f;
 HangPointOffset = 0.0f;
@@ -1310,8 +1330,8 @@ SetActorRotation(DesiredRot);
 	FlightLogTimer += DeltaTime;
 if (FlightLogTimer > 1.0f)	{
 		FlightLogTimer = 0.0f;
-UE_LOG(LogTemp, Warning, TEXT("WingActor: FLIGHT speed=%.1f mph climb=%.0f fpm alt=%.0fm pend=%.1f° pitch=%.0f° wpitch=%.1f° thrust=%.0f yaw=%.1f bank=%.1f proll=%.1f L=%.2f R=%.2f brakeL=%.1f brakeR=%.1f wshift=%.2f turb=%.1f trim=%.1f spiral=%.0f%% wl=%.1f | LineTension A=%.0f B=%.0f C=%.0f D=%.0f N stretchA=%.2fcm"),			Airspeed / 100.0f * 2.23694f, ClimbRate / 100.0f * 196.85f, AltitudeM,			PendulumAngle * 180.0f / PI, PilotPitch, WingPitchAngle, ThrustAccel, YawRate, CurrentRoll,
-			PilotRollAngle,			LeftCL, RightCL, EffectiveLeftBrake, EffectiveRightBrake, WeightShift, TurbStrength,			TrimSpeedMs * 2.23694f, SpiralDiveFactor * 100, WingLoading,
+UE_LOG(LogTemp, Warning, TEXT("WingActor: FLIGHT speed=%.1f mph climb=%.0f fpm alt=%.0fm pend=%.1f° pitch=%.0f° wpitch=%.1f° thrust=%.0f yaw=%.1f bank=%.1f proll=%.1f L=%.2f R=%.2f brakeL=%.1f brakeR=%.1f wshift=%.2f turb=%.1f trim=%.1f spiral=%.0f%% wl=%.1f | LineTension A=%.0f B=%.0f C=%.0f D=%.0f N stretchA=%.2fcm"),			Airspeed / 100.0f * MPH_PER_MS, ClimbRate / 100.0f * 196.85f, AltitudeM,			PendulumAngle * 180.0f / PI, PilotPitch, WingPitchAngle, ThrustAccel, YawRate, CurrentRoll,
+			PilotRollAngle,			LeftCL, RightCL, EffectiveLeftBrake, EffectiveRightBrake, WeightShift, TurbStrength,			TrimSpeedMs * MPH_PER_MS, SpiralDiveFactor * 100, WingLoading,
 			LineTensionA, LineTensionB, LineTensionC, LineTensionD, LineStretchA);
 }
 }

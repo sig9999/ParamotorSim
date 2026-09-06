@@ -64,6 +64,16 @@ public:
 	// Wing inflation - plays the crispy fabric inflation sound
 	void PlayWingInflate();
 
+	// Get world-space carabiner positions from the wing clip rings on the frame
+	// Returns false if the rings can't be found (falls back to estimated position)
+	bool GetCarabinerWorldPositions(FVector& OutLeft, FVector& OutRight) const;
+
+	// Called by WingActor to update A-arm orientation toward the wing
+	void UpdateWingTarget(const FVector& WingWorldPos, bool bConnected);
+
+	// Update A-arm pivots to point toward the wing (called in Tick)
+	void UpdateAArmPivots();
+
 protected:
 	// Root scene component
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Paramotor")
@@ -79,19 +89,68 @@ protected:
 
 	// Audio components
 	UPROPERTY()
-	UAudioComponent* StarterAudio;
+	UAudioComponent* StarterAudio = nullptr;
 	UPROPERTY()
-	UAudioComponent* EngineAudio;
+	UAudioComponent* EngineAudio = nullptr;
 	UPROPERTY()
-	UAudioComponent* ExhaustAudio;
+	UAudioComponent* ExhaustAudio = nullptr;
 	UPROPERTY()
-	UAudioComponent* PropWindAudio;
+	UAudioComponent* PropWindAudio = nullptr;
 	UPROPERTY()
-	UAudioComponent* WingInflateAudio;
+	UAudioComponent* WingInflateAudio = nullptr;
 
 	// All mesh components (populated in BeginPlay)
 	UPROPERTY()
 	TArray<UStaticMeshComponent*> MeshComponents;
+
+	// === A-ARM PIVOT HIERARCHY ===
+	// Real paramotor: A-arms pivot from the frame studs, carabiners clip through
+	// the rings at the bottom, risers hang from the carabiners toward the wing.
+	// The A-arms swing freely so the wing can move independently of the frame.
+
+	// A-arm pivot scene components (rotate to follow wing direction)
+	UPROPERTY()
+	USceneComponent* AArmPivotLeft = nullptr;
+	UPROPERTY()
+	USceneComponent* AArmPivotRight = nullptr;
+
+	// A-arm mesh components (attached to pivots)
+	UPROPERTY()
+	UStaticMeshComponent* AArmMeshLeft = nullptr;
+	UPROPERTY()
+	UStaticMeshComponent* AArmMeshRight = nullptr;
+
+	// Ring mesh components (at bottom of A-arms)
+	UPROPERTY()
+	UStaticMeshComponent* RingMeshLeft = nullptr;
+	UPROPERTY()
+	UStaticMeshComponent* RingMeshRight = nullptr;
+
+	// Carabiner mesh components (clip through rings)
+	UPROPERTY()
+	UStaticMeshComponent* CarabinerMeshLeft = nullptr;
+	UPROPERTY()
+	UStaticMeshComponent* CarabinerMeshRight = nullptr;
+
+	// Riser mesh components (webbing straps from carabiner toward wing)
+	UPROPERTY()
+	UStaticMeshComponent* RiserMeshLeft = nullptr;
+	UPROPERTY()
+	UStaticMeshComponent* RiserMeshRight = nullptr;
+
+	// Brake toggle mesh components (handles on risers)
+	UPROPERTY()
+	UStaticMeshComponent* BrakeToggleMeshLeft = nullptr;
+	UPROPERTY()
+	UStaticMeshComponent* BrakeToggleMeshRight = nullptr;
+
+	// Quick link mesh components (connect risers to lines)
+	UPROPERTY()
+	TMap<FString, UStaticMeshComponent*> QuickLinkMeshes;
+
+	// Target wing world position (set by WingActor for A-arm orientation)
+	FVector WingTargetPos = FVector::ZeroVector;
+	bool bWingConnected = false;
 
 	// Prop mesh components (for rotation)
 	UPROPERTY()
@@ -130,6 +189,17 @@ protected:
 
 	// Load and attach all paramotor mesh parts
 	void BuildParamotorMeshes();
+
+	// Build the A-arm pivot hierarchy (frame → stud → pivot → A-arm → ring → carabiner → risers)
+	void BuildAArmHierarchy();
+
+	// Shared blade-element integration helper (used by GetThrustForceN and GetPropTorqueNM)
+	// Returns thrust (N) and torque (N·m) for the current propeller state
+	struct FBladeElementResult { float ThrustN; float TorqueNM; };
+	FBladeElementResult ComputeBladeElement(float AirspeedMs) const;
+
+	// Rotate prop meshes around the prop shaft (shared by running and spool-down paths)
+	void UpdatePropMeshRotation();
 
 	// Mesh paths for all paramotor parts
 	static const TArray<FString> GetParamotorMeshPaths();

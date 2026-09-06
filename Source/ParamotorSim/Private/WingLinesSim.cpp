@@ -341,10 +341,12 @@ LP.bPinned = (seg == 0);
 LP.CanopyParticleIdx = (seg == 0) ? CanopyIdx : -1;
 LP.Radius = Lvl.Radius;
 LP.Color = Lvl.Color;
-// Line mass from segment length × linear density (paracord ~0.0035 kg/m for 1.5mm)
-float SegLenM = (MainLineTotal / (NumSegs + 1)) / CM_PER_M;
-LP.Mass = FMath::Max(0.001f, SegLenM * 0.0035f);  // Real paracord linear density
-LP.Damping = 0.05f;  // Low damping for cord (was 0.9 — overdamped)
+// Line mass for Verlet stability. Physical paracord mass (~0.0035 kg/m) is too
+// small for stable Verlet integration with real line stiffness (250000 N/m) at
+// 60fps. Use a higher mass that keeps the simulation stable — line mass doesn't
+// affect flight physics (lines are visual-only during flight).
+LP.Mass = 0.5f;
+LP.Damping = 0.9f;
 LP.Side = side;
 LP.Level = (int32)Lvl.Level;
 LP.RibIdx = rib;
@@ -417,23 +419,41 @@ FVector LocalPos = ActorTransform.InverseTransformPosition(CarabWorldPos);
 LineParticles[CarabIdx].Pos = LocalPos;
 LineParticles[CarabIdx].OldPos = LocalPos;
 LineParticles[CarabIdx].bPinned = true;
-// Riser: 49cm from carabiner, in the direction of the wing
-// This makes the riser hang down when wing is on ground,
-// and point up when wing is inflated overhead
-
+// Riser: 49cm from carabiner, pointing UP (rigid webbing strap).
+// The riser is a fixed-length strap that hangs from the carabiner.
+// It does NOT follow the wing direction — it always points up from
+// the carabiner. The lines above the riser connect to the wing.
+// When the wing is on the ground behind the pilot, the riser points
+// up and the lines drape down from the riser top to the wing.
+// When the wing is inflated overhead, the riser points up and the
+// lines go from the riser top up to the canopy.
 if (RiserIdx >= 0 && RiserIdx < LineParticles.Num())			{
-				FVector ToWing = WingWorldPos - CarabWorldPos;
-float DistToWing = ToWing.Size();
-FVector RiserDir = (DistToWing > 1.0f) ? (ToWing / DistToWing) : FVector(0, 0, -1.0f);
-FVector RiserWorldPos = CarabWorldPos + RiserDir * RISER_LENGTH_CM;
-FVector RiserLocalPos = ActorTransform.InverseTransformPosition(RiserWorldPos);
-LineParticles[RiserIdx].Pos = RiserLocalPos;
-LineParticles[RiserIdx].OldPos = RiserLocalPos;
-LineParticles[RiserIdx].bPinned = true;
-}
+				// Riser always points straight up from carabiner (rigid strap)
+				FVector RiserWorldPos = CarabWorldPos + FVector(0, 0, RISER_LENGTH_CM);
+				FVector RiserLocalPos = ActorTransform.InverseTransformPosition(RiserWorldPos);
+				LineParticles[RiserIdx].Pos = RiserLocalPos;
+				LineParticles[RiserIdx].OldPos = RiserLocalPos;
+				LineParticles[RiserIdx].bPinned = true;
+			}
 };
 UpdateCarabinerAndRiser(LeftCarabinerIdx, LeftRiserIdx, LeftCarabinerPos);
 UpdateCarabinerAndRiser(RightCarabinerIdx, RightRiserIdx, RightCarabinerPos);
+
+// Debug: log riser world positions
+RiserLogTimer += DeltaTime;
+if (RiserLogTimer > 1.0f && LeftRiserIdx >= 0 && RightRiserIdx >= 0)
+{
+	RiserLogTimer = 0.0f;
+	FTransform T = GetActorTransform();
+	FVector LCarabWorld = T.TransformPosition(LineParticles[LeftCarabinerIdx].Pos);
+	FVector RCarabWorld = T.TransformPosition(LineParticles[RightCarabinerIdx].Pos);
+	FVector LRiserWorld = T.TransformPosition(LineParticles[LeftRiserIdx].Pos);
+	FVector RRiserWorld = T.TransformPosition(LineParticles[RightRiserIdx].Pos);
+	UE_LOG(LogTemp, Warning, TEXT("RISER: Carab L=%s R=%s | Riser L=%s R=%s | Wing=%s"),
+		*LCarabWorld.ToString(), *RCarabWorld.ToString(),
+		*LRiserWorld.ToString(), *RRiserWorld.ToString(),
+		*GetActorLocation().ToString());
+}
 }
 	else	{
 		if (LeftCarabinerIdx >= 0) LineParticles[LeftCarabinerIdx].bPinned = false;

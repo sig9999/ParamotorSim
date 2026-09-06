@@ -314,7 +314,7 @@ protected:
 	// - Each cell has independent pressure (one cell can collapse while others fly)
 	// - Pressure determines cell shape (inflated = airfoil, deflated = flat fabric)
 	// - Lift comes from the pressurized airfoil shape, not a formula
-	static constexpr int32 NUM_WING_CELLS = 92;  // 92 mesh cells (2x real 46 for smoothness)
+	static constexpr int32 NUM_WING_CELLS = 46;  // Real MacPara Charger 25M cell count
 	float CellPressure[NUM_WING_CELLS];          // Internal pressure per cell (Pa, 0=deflated, ~50=fully pressurized at 6m/s)
 	float CellFill[NUM_WING_CELLS];              // Fill state per cell (0=empty, 1=full)
 	float CellLift[NUM_WING_CELLS];              // Lift per cell (Newtons)
@@ -392,6 +392,12 @@ protected:
 	float FlightLogTimer = 0.0f;
 	float StallLogTimer = 0.0f;
 	float EndLogTimer = 0.0f;  // Instance member (was static — shared between instances)
+	float InflLogTimer = 0.0f;  // Cloth sim inflation log timer
+	float RiserLogTimer = 0.0f;  // Line sim riser log timer
+	float EntryLogTimer = 0.0f;  // Flight physics entry log timer
+	float RisersLogTimer = 0.0f;  // Flight physics risers warning timer
+	float PawnLogTimer = 0.0f;  // Flight physics pawn warning timer
+	float RollDebugTimer = 0.0f;  // Flight physics roll debug timer
 	float CurrentRoll = 0.0f;  // Smoothed roll for flight steering
 	float CanopyOpenness = 0.0f;  // 0=crinkled, 1=fully open. Increased by brake pumping.
 	float BrakePumpBoost = 0.0f;  // Temporary lift boost from brake pumping (decays over time)
@@ -426,6 +432,9 @@ protected:
 	float SeatTransition = 0.0f;       // 0=standing, 1=fully seated (smooth transition)
 	float HangPointOffset = 0.0f;      // -1.0 = motor leans back, +1.0 = motor leans forward
 	float DragReductionFromSeat = 0.0f; // Drag reduction factor from seated position (0-0.3)
+	bool bAutoSeatPending = false;     // True after takeoff — auto-seat after delay
+	float LaunchTimer = 0.0f;          // Time since takeoff (for launch-to-seat transition)
+	float LaunchAngleOffset = 0.0f;    // Pitch offset during launch (motor torque tilt)
 
 	// === WING INERTIA / APPARENT MASS ===
 	// A paraglider wing doesn't respond instantly to inputs — it has inertia
@@ -614,7 +623,9 @@ protected:
 
 	// === Materials ===
 	UPROPERTY()
-	UMaterialInterface* CanopyMaterial;
+	UMaterialInterface* CanopyMaterial = nullptr;
+	UPROPERTY()
+	UMaterialInterface* LineMaterial = nullptr;  // Cached line mesh material (was per-frame LoadObject)
 	// CanopyMID removed (was unused)
 	// WingLight removed (was unused)
 
@@ -645,6 +656,9 @@ protected:
 	int32 GetRibVertexIndex(int32 RibIdx, int32 PointIdx) const;
 
 	float GetGroundZ(FVector Pos) const;
+	// Cached ground Z — call once per tick, then use the cached value
+	float GetCachedGroundZ(FVector Pos);
+	void InvalidateGroundZCache() { bGroundZCachedThisTick = false; }
 
 	// === COMMON HELPERS (extracted from duplicated code) ===
 	// Get pilot forward/right vectors and velocity from connected paramotor
@@ -668,4 +682,13 @@ protected:
 	FVector CachedCanopyMin = FVector::ZeroVector;
 	FVector CachedCanopyMax = FVector::ZeroVector;
 	bool bCanopyBoundsCached = false;
+
+	// === PER-TICK CACHED VALUES (avoid redundant line traces per frame) ===
+	float CachedWingGroundZ = 0.0f;     // Ground Z at wing position (cached per tick)
+	float CachedPilotGroundZ = 0.0f;    // Ground Z at pilot position (cached per tick)
+	bool bGroundZCachedThisTick = false;
+
+	// === CACHED GAME INSTANCE ===
+	UPROPERTY()
+	class UParamotorGameInstance* CachedGameInstance = nullptr;
 };

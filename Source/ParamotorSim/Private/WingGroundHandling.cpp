@@ -129,13 +129,13 @@ float HeadwindMs = -FVector::DotProduct(GroundApparentWind, PilotFwd) / 100.0f;
 float AirspeedMs = FMath::Max(0.0f, HeadwindMs);
 // No airspeed cap — lift/weight balance naturally limits takeoff speed
 float GroundSpeedMs = HorizVel.Size() / 100.0f;
-float AirspeedMph = AirspeedMs * 2.23694f;
-float GroundSpeedMph = GroundSpeedMs * 2.23694f;
+float AirspeedMph = AirspeedMs * MPH_PER_MS;
+float GroundSpeedMph = GroundSpeedMs * MPH_PER_MS;
 // === WING LIFT (from cell pressure model — real physics) ===
 // Lift comes from the pressurized airfoil, not a formula.
 // The cell pressure model already accounts for fill state, brake input, and stall.
 // L = sum of all cell lift forces (already computed by UpdateCellPressure)
-float Rho = 1.225f;
+float Rho = AIR_DENSITY_SEA_LEVEL;
 float LiftN = GetTotalCellLiftN();
 // Ground effect: decreases induced drag near ground → more effective lift
 // Formula: factor = 1 + 0.20 * exp(-h / (b/2))
@@ -233,7 +233,7 @@ DebugWeightSupport = FMath::Clamp(WeightSupport, 0.0f, 1.0f);
 
 if (GroundLogTimer > 0.2f)				{
 					GroundLogTimer = 0.0f;
-UE_LOG(LogTemp, Warning, TEXT("GRUN: air=%.1fmph grd=%.1fmph wnd=%.1fmph(±%.1f) need=%.1fmph thr=%.2f support=%.0f%% skipZ=%.0f hops=%d ge=%.2f"),						AirspeedMph, GroundSpeedMph, CurrentWindSpeed * 2.23694f, GustAmplitude * 2.23694f,						TakeoffSpeedMs * 2.23694f, ThrottleAmount,						WeightSupport * 100.0f, TakeoffSkipZ, TakeoffFootContacts, GroundEffectDragFactor);
+UE_LOG(LogTemp, Warning, TEXT("GRUN: air=%.1fmph grd=%.1fmph wnd=%.1fmph(±%.1f) need=%.1fmph thr=%.2f support=%.0f%% skipZ=%.0f hops=%d ge=%.2f"),						AirspeedMph, GroundSpeedMph, CurrentWindSpeed * MPH_PER_MS, GustAmplitude * MPH_PER_MS,						TakeoffSpeedMs * MPH_PER_MS, ThrottleAmount,						WeightSupport * 100.0f, TakeoffSkipZ, TakeoffFootContacts, GroundEffectDragFactor);
 }
 				// === NATURAL TAKEOFF ===
 		// Takeoff is a physical transition, not a timer:
@@ -284,7 +284,12 @@ PrevThrottleAmount = ThrottleAmount;
 ThrottleRate = 0.0f;
 FlightTime = 0.0f;
 PilotPitch = 0.0f;
-PilotPitchTarget = -75.0f;
+PilotPitchTarget = 0.0f;  // Start upright — auto-transitions to seated after launch
+// Launch-to-seat transition: pilot is upright at takeoff, settles into seat after ~3s
+bSeated = false;
+bAutoSeatPending = true;
+LaunchTimer = 0.0f;
+LaunchAngleOffset = 5.0f;  // Motor torque tilts pilot slightly forward at takeoff
 // Reset collapse/stall states on takeoff
 					LeftCollapseAmount = 0.0f;
 RightCollapseAmount = 0.0f;
@@ -298,7 +303,7 @@ EffectiveRightBrake = 0.0f;
 PilotRollAngle = 0.0f;
 PilotRollRate = 0.0f;
 
-UE_LOG(LogTemp, Warning, TEXT("WingActor: TAKEOFF! air=%.1fmph grd=%.1fmph thr=%.2f support=%.0f%% wind=%.1fmph hops=%d"),						AirspeedMph, GroundSpeedMph, ThrottleAmount,						WeightSupport * 100.0f, CurrentWindSpeed * 2.23694f, TakeoffFootContacts);
+UE_LOG(LogTemp, Warning, TEXT("WingActor: TAKEOFF! air=%.1fmph grd=%.1fmph thr=%.2f support=%.0f%% wind=%.1fmph hops=%d"),						AirspeedMph, GroundSpeedMph, ThrottleAmount,						WeightSupport * 100.0f, CurrentWindSpeed * MPH_PER_MS, TakeoffFootContacts);
 }
 }
 }

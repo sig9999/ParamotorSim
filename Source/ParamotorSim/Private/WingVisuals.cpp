@@ -287,36 +287,27 @@ Tris.Add(V2);
 }
 };
 // Draw all line segments
+// Skip riser-to-carabiner constraints (both pinned) — real mesh risers handle that
 for (const FClothConstraint& C : LineConstraints)	{
 		if (C.A >= LineParticles.Num() || C.B >= LineParticles.Num()) continue;
 FLineParticle& PA = LineParticles[C.A];
 FLineParticle& PB = LineParticles[C.B];
+// Skip riser strap (both carabiner and riser are pinned) — drawn by real mesh
+if (PA.bPinned && PB.bPinned) continue;
 float Radius = FMath::Max(PA.Radius, PB.Radius);
 FLinearColor Color = PA.Color;
 AddCylinder(PA.Pos, PB.Pos, Radius, Color);
 }
-	// Draw brake toggle handles
-auto AddBrakeToggle = [&](FVector Pos, FLinearColor Color)	{
-// T-grip bar
-		AddCylinder(Pos +
-FVector(0, -4, 0), Pos + FVector(0, 4, 0), 1.0f, Color);
-// Small hub
-		AddSphere(Pos, 1.5f,
-FLinearColor(0.15f, 0.15f, 0.15f, 1.0f));
-};
-if (LeftBrakeHandleIdx >= 0 && LeftBrakeHandleIdx < LineParticles.Num())		AddBrakeToggle(LineParticles[LeftBrakeHandleIdx].Pos, FLinearColor(0.2f, 0.2f, 0.8f, 1.0f));
-if (RightBrakeHandleIdx >= 0 && RightBrakeHandleIdx < LineParticles.Num())		AddBrakeToggle(LineParticles[RightBrakeHandleIdx].Pos, FLinearColor(0.2f, 0.2f, 0.8f, 1.0f));
-// Draw carabiners as small metal spheres
-if (LeftCarabinerIdx >= 0 && LeftCarabinerIdx < LineParticles.Num())		AddSphere(LineParticles[LeftCarabinerIdx].Pos, 1.0f, FLinearColor(0.7f, 0.7f, 0.7f, 1.0f));
-if (RightCarabinerIdx >= 0 && RightCarabinerIdx < LineParticles.Num())		AddSphere(LineParticles[RightCarabinerIdx].Pos, 1.0f, FLinearColor(0.7f, 0.7f, 0.7f, 1.0f));
+	// Brake toggles and carabiners are real meshes on the paramotor — skip procedural drawing
+// Carabiners and brake toggles are now real meshes on the paramotor A-arm hierarchy
+// Skip drawing procedural spheres for them
 LineMesh->CreateMeshSection_LinearColor(0, Verts, Tris, Normals, UVs, Colors, Tangents, false);
-LineMesh->SetMeshSectionVisible(0, true);
-// Use simple unlit material for lines
-	UMaterialInterface* LineMat = LoadObject<UMaterialInterface>(nullptr,
-TEXT("/Engine/EngineMaterials/EmissiveMeshMaterial.EmissiveMeshMaterial"));
-if (LineMat)	{
-		LineMesh->SetMaterial(0, LineMat);
-}
+	LineMesh->SetMeshSectionVisible(0, true);
+	// Use cached line material (loaded once in BeginPlay, not per-frame)
+	if (LineMaterial)
+	{
+		LineMesh->SetMaterial(0, LineMaterial);
+	}
 }
 
 // ============================================================

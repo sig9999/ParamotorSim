@@ -273,14 +273,21 @@ void AParamotorPlayerController::OnInteract()
 		float DistToWing = FVector::Dist2D(PlayerPos, SpawnedWingActor->GetActorLocation());
 		if (DistToWing < 600.0f)
 		{
-			// Carabiner points are on the character's harness, at chest/shoulder height
-			// Real measurement: 42cm total spacing = 21cm each side from center
-			// MetaHuman actor origin is at feet; chest/shoulder height ~140cm for standing adult
-			FVector CharRight = Char->GetActorRightVector();
-			float CarabHalfSpacing = CARABINER_SPACING_CM * 0.5f;
-			float HarnessHeightCm = 140.0f;  // Chest/shoulder height for standing adult
-			FVector LeftCarabiner = PlayerPos + CharRight * -CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
-			FVector RightCarabiner = PlayerPos + CharRight * CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
+			// Get carabiner positions from the paramotor's wing clip rings
+			FVector LeftCarabiner, RightCarabiner;
+			if (SpawnedParamotorActor->GetCarabinerWorldPositions(LeftCarabiner, RightCarabiner))
+			{
+				// Use real ring positions from the paramotor frame
+			}
+			else
+			{
+				// Fallback: estimate from character position (hip/harness height)
+				FVector CharRight = Char->GetActorRightVector();
+				float CarabHalfSpacing = CARABINER_SPACING_CM * 0.5f;
+				float HarnessHeightCm = 95.0f;  // Hip/harness height (real carabiner position)
+				LeftCarabiner = PlayerPos + CharRight * -CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
+				RightCarabiner = PlayerPos + CharRight * CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
+			}
 
 			SpawnedWingActor->ConnectRisers(SpawnedParamotorActor, LeftCarabiner, RightCarabiner);
 
@@ -583,13 +590,24 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 		AParamotorCharacter* Char3 = Cast<AParamotorCharacter>(MyPawn3);
 		if (Char3)
 		{
-			FVector CharPos = Char3->GetActorLocation();
-			FVector CharRight = Char3->GetActorRightVector();
-			float CarabHalfSpacing = CARABINER_SPACING_CM * 0.5f;
-			float HarnessHeightCm = 140.0f;
-			FVector LeftCarabiner = CharPos + CharRight * -CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
-			FVector RightCarabiner = CharPos + CharRight * CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
-			SpawnedWingActor->UpdateCarabinerPositions(LeftCarabiner, RightCarabiner);
+			// Get actual carabiner positions from the paramotor's wing clip rings
+			FVector LeftCarabiner, RightCarabiner;
+			if (SpawnedParamotorActor->GetCarabinerWorldPositions(LeftCarabiner, RightCarabiner))
+			{
+				// Use real ring positions from the paramotor frame
+				SpawnedWingActor->UpdateCarabinerPositions(LeftCarabiner, RightCarabiner);
+			}
+			else
+			{
+				// Fallback: estimate from character position (hip height, not chest)
+				FVector CharPos = Char3->GetActorLocation();
+				FVector CharRight = Char3->GetActorRightVector();
+				float CarabHalfSpacing = CARABINER_SPACING_CM * 0.5f;
+				float HarnessHeightCm = 95.0f;  // Hip/harness height (real carabiner position)
+				LeftCarabiner = CharPos + CharRight * -CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
+				RightCarabiner = CharPos + CharRight * CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
+				SpawnedWingActor->UpdateCarabinerPositions(LeftCarabiner, RightCarabiner);
+			}
 
 			// Send brake input to wing — PROGRESSIVE (ramp up/down like real brake handles)
 			// Q = pilot's left hand = left brake, E = pilot's right hand = right brake
@@ -622,6 +640,7 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 			// The wing's internal "left/right" labels are in wing-local space and may not
 			// match the pilot's left/right due to the wing's yaw rotation.
 			// Determine which handle is actually on the pilot's left vs right using world-space.
+			FVector CharPos = Char3->GetActorLocation();
 			FVector WingLeftPos = SpawnedWingActor->GetLeftBrakeHandleWorldPos();
 			FVector WingRightPos = SpawnedWingActor->GetRightBrakeHandleWorldPos();
 

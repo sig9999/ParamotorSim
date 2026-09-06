@@ -530,7 +530,7 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 	// ============================================================
 	// Speed (cm/s -> mph)
 	// ============================================================
-	float SpdMph = Pawn->GetVelocity().Size() / 100.0f * 2.23694f;
+	float SpdMph = Pawn->GetVelocity().Size() / 100.0f * MPH_PER_MS;
 	if (SpeedValue)
 		SpeedValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f mph"), SpdMph)));
 
@@ -882,10 +882,10 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 		{
 			if (WState == EWingState::Inflated)
 			{
-				float airMph = Wing->GetDebugGroundAirspeed() * 2.23694f;
-				float grdMph = Wing->GetDebugGroundSpeed() * 2.23694f;
-				float headMph = Wing->GetDebugHeadwind() * 2.23694f;
-				float threshMph = Wing->GetDebugTakeoffThreshold() * 2.23694f;
+				float airMph = Wing->GetDebugGroundAirspeed() * MPH_PER_MS;
+				float grdMph = Wing->GetDebugGroundSpeed() * MPH_PER_MS;
+				float headMph = Wing->GetDebugHeadwind() * MPH_PER_MS;
+				float threshMph = Wing->GetDebugTakeoffThreshold() * MPH_PER_MS;
 				float thr = Wing->GetDebugThrottle();
 				float support = Wing->GetDebugWeightSupport() * 100.0f;
 				bool bCanTakeoff = (Wing->GetDebugGroundAirspeed() > Wing->GetDebugTakeoffThreshold() && thr > 0.15f)

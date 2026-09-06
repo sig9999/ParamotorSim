@@ -93,8 +93,7 @@ const TArray<FString> AParamotorActor::GetParamotorMeshPaths()
 		TEXT("/Game/Meshes/Frame_BotRight.Frame_BotRight"),
 		TEXT("/Game/Meshes/Frame_SeatLeft.Frame_SeatLeft"),
 		TEXT("/Game/Meshes/Frame_SeatRight.Frame_SeatRight"),
-		TEXT("/Game/Meshes/AArm_Left.AArm_Left"),
-		TEXT("/Game/Meshes/AArm_Right.AArm_Right"),
+		// A-arms, carabiners, rings, risers are built as a hierarchy (not flat)
 		TEXT("/Game/Meshes/Engine_Crankcase.Engine_Crankcase"),
 		TEXT("/Game/Meshes/Engine_Cylinder.Engine_Cylinder"),
 		TEXT("/Game/Meshes/Engine_CylHead.Engine_CylHead"),
@@ -136,8 +135,7 @@ const TArray<FString> AParamotorActor::GetParamotorMeshPaths()
 		TEXT("/Game/Meshes/Throttle_Cable.Throttle_Cable"),
 		TEXT("/Game/Meshes/WingClip_Stud_Left.WingClip_Stud_Left"),
 		TEXT("/Game/Meshes/WingClip_Stud_Right.WingClip_Stud_Right"),
-		TEXT("/Game/Meshes/WingClip_Ring_Left.WingClip_Ring_Left"),
-		TEXT("/Game/Meshes/WingClip_Ring_Right.WingClip_Ring_Right"),
+		// Rings, carabiners, risers, quick links, brake toggles built as hierarchy
 	};
 }
 
@@ -172,6 +170,135 @@ void AParamotorActor::BuildParamotorMeshes()
 
 	UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Built %d mesh components, %d prop meshes"),
 		MeshComponents.Num(), PropMeshes.Num());
+
+	// === BUILD A-ARM PIVOT HIERARCHY ===
+	// Real paramotor connection:
+	//   Frame → Stud (fixed) → AArm (PIVOTS) → Ring → Carabiner → Risers → QuickLinks → Lines
+	// The A-arms pivot freely so the wing can swing independently of the frame.
+	BuildAArmHierarchy();
+}
+
+void AParamotorActor::BuildAArmHierarchy()
+{
+	// Helper to load a mesh and create a component attached to a parent
+	auto LoadMeshComp = [&](const FString& AssetPath, const FString& CompName,
+		USceneComponent* Parent) -> UStaticMeshComponent*
+	{
+		UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *AssetPath);
+		if (!Mesh)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Failed to load %s"), *AssetPath);
+			return nullptr;
+		}
+		UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this, FName(*CompName));
+		Comp->SetupAttachment(Parent);
+		Comp->SetStaticMesh(Mesh);
+		Comp->SetMobility(EComponentMobility::Movable);
+		Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Comp->SetCastShadow(true);
+		Comp->RegisterComponent();
+		return Comp;
+	};
+
+	// Find the stud mesh components (pivot attachment points on the frame)
+	UStaticMeshComponent* StudLeft = nullptr;
+	UStaticMeshComponent* StudRight = nullptr;
+	for (UStaticMeshComponent* Comp : MeshComponents)
+	{
+		if (!Comp) continue;
+		FString Name = Comp->GetName();
+		if (Name.Contains(TEXT("WingClip_Stud_Left"))) StudLeft = Comp;
+		else if (Name.Contains(TEXT("WingClip_Stud_Right"))) StudRight = Comp;
+	}
+
+	// === LEFT A-ARM HIERARCHY ===
+	// Pivot scene component attached to the stud (or root if stud not found)
+	AArmPivotLeft = NewObject<USceneComponent>(this, TEXT("AArmPivot_Left"));
+	AArmPivotLeft->SetupAttachment(StudLeft ? (USceneComponent*)StudLeft : Root);
+	AArmPivotLeft->SetMobility(EComponentMobility::Movable);
+	AArmPivotLeft->RegisterComponent();
+
+	// A-arm mesh attached to pivot
+	AArmMeshLeft = LoadMeshComp(TEXT("/Game/Meshes/AArm_Left.AArm_Left"), TEXT("AArmMesh_Left"), AArmPivotLeft);
+	// Ring at bottom of A-arm
+	RingMeshLeft = LoadMeshComp(TEXT("/Game/Meshes/WingClip_Ring_Left.WingClip_Ring_Left"), TEXT("RingMesh_Left"), AArmPivotLeft);
+	// Carabiner clips through ring
+	CarabinerMeshLeft = LoadMeshComp(TEXT("/Game/Meshes/Carabiner_Left.Carabiner_Left"), TEXT("CarabinerMesh_Left"), AArmPivotLeft);
+	// Riser webbing straps (from carabiner toward wing)
+	RiserMeshLeft = LoadMeshComp(TEXT("/Game/Meshes/SM_RiserLines.SM_RiserLines"), TEXT("RiserMesh_Left"), AArmPivotLeft);
+	// Brake toggle handle
+	BrakeToggleMeshLeft = LoadMeshComp(TEXT("/Game/Meshes/BrakeToggle_Left.BrakeToggle_Left"), TEXT("BrakeToggle_Left"), AArmPivotLeft);
+	// Quick links (A/B/C/D)
+	QuickLinkMeshes.Add(TEXT("A_Left"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_A_Left.QuickLink_A_Left"), TEXT("QuickLink_A_Left"), AArmPivotLeft));
+	QuickLinkMeshes.Add(TEXT("B_Left"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_B_Left.QuickLink_B_Left"), TEXT("QuickLink_B_Left"), AArmPivotLeft));
+	QuickLinkMeshes.Add(TEXT("C_Left"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_C_Left.QuickLink_C_Left"), TEXT("QuickLink_C_Left"), AArmPivotLeft));
+	QuickLinkMeshes.Add(TEXT("D_Left"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_D_Left.QuickLink_D_Left"), TEXT("QuickLink_D_Left"), AArmPivotLeft));
+
+	// === RIGHT A-ARM HIERARCHY ===
+	AArmPivotRight = NewObject<USceneComponent>(this, TEXT("AArmPivot_Right"));
+	AArmPivotRight->SetupAttachment(StudRight ? (USceneComponent*)StudRight : Root);
+	AArmPivotRight->SetMobility(EComponentMobility::Movable);
+	AArmPivotRight->RegisterComponent();
+
+	AArmMeshRight = LoadMeshComp(TEXT("/Game/Meshes/AArm_Right.AArm_Right"), TEXT("AArmMesh_Right"), AArmPivotRight);
+	RingMeshRight = LoadMeshComp(TEXT("/Game/Meshes/WingClip_Ring_Right.WingClip_Ring_Right"), TEXT("RingMesh_Right"), AArmPivotRight);
+	CarabinerMeshRight = LoadMeshComp(TEXT("/Game/Meshes/Carabiner_Right.Carabiner_Right"), TEXT("CarabinerMesh_Right"), AArmPivotRight);
+	RiserMeshRight = LoadMeshComp(TEXT("/Game/Meshes/SM_RiserLines.SM_RiserLines"), TEXT("RiserMesh_Right"), AArmPivotRight);
+	BrakeToggleMeshRight = LoadMeshComp(TEXT("/Game/Meshes/BrakeToggle_Right.BrakeToggle_Right"), TEXT("BrakeToggle_Right"), AArmPivotRight);
+	QuickLinkMeshes.Add(TEXT("A_Right"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_A_Right.QuickLink_A_Right"), TEXT("QuickLink_A_Right"), AArmPivotRight));
+	QuickLinkMeshes.Add(TEXT("B_Right"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_B_Right.QuickLink_B_Right"), TEXT("QuickLink_B_Right"), AArmPivotRight));
+	QuickLinkMeshes.Add(TEXT("C_Right"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_C_Right.QuickLink_C_Right"), TEXT("QuickLink_C_Right"), AArmPivotRight));
+	QuickLinkMeshes.Add(TEXT("D_Right"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_D_Right.QuickLink_D_Right"), TEXT("QuickLink_D_Right"), AArmPivotRight));
+
+	UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Built A-arm hierarchy (L/R pivots + meshes)"));
+}
+
+void AParamotorActor::UpdateWingTarget(const FVector& WingWorldPos, bool bConnected)
+{
+	WingTargetPos = WingWorldPos;
+	bWingConnected = bConnected;
+}
+
+void AParamotorActor::UpdateAArmPivots()
+{
+	if (!AArmPivotLeft || !AArmPivotRight) return;
+
+	if (!bWingConnected)
+	{
+		// No wing connected — A-arms hang straight down
+		AArmPivotLeft->SetRelativeRotation(FRotator(0, 0, 0));
+		AArmPivotRight->SetRelativeRotation(FRotator(0, 0, 0));
+		return;
+	}
+
+	// Get pivot world positions
+	FVector PivotLeftPos = AArmPivotLeft->GetComponentLocation();
+	FVector PivotRightPos = AArmPivotRight->GetComponentLocation();
+
+	// Direction from each pivot to the wing
+	FVector ToWingLeft = WingTargetPos - PivotLeftPos;
+	FVector ToWingRight = WingTargetPos - PivotRightPos;
+
+	// The A-arm should point toward the wing, but only the pitch (forward/back) and
+	// yaw (left/right) rotation. The A-arm pivots from the stud at the top.
+	// In local space: X = forward, Y = right, Z = up
+	// The A-arm hangs down (-Z) and swings toward the wing.
+
+	// Convert wing direction to local space of the paramotor
+	FVector LocalToWing = GetActorTransform().InverseTransformVector(ToWingLeft.GetSafeNormal());
+
+	// Pitch: how far forward/back the wing is (X component)
+	// Yaw: how far left/right the wing is (Y component)
+	float PitchDeg = FMath::Atan2(LocalToWing.X, FMath::Abs(LocalToWing.Z)) * 180.0f / PI;
+	float YawDeg = FMath::Atan2(LocalToWing.Y, FMath::Abs(LocalToWing.Z)) * 180.0f / PI;
+
+	// Clamp to reasonable A-arm swing range (±60° pitch, ±30° yaw)
+	PitchDeg = FMath::Clamp(PitchDeg, -60.0f, 60.0f);
+	YawDeg = FMath::Clamp(YawDeg, -30.0f, 30.0f);
+
+	// Apply rotation (pitch around Y axis, yaw around Z axis)
+	AArmPivotLeft->SetRelativeRotation(FRotator(PitchDeg, YawDeg, 0));
+	AArmPivotRight->SetRelativeRotation(FRotator(PitchDeg, -YawDeg, 0));
 }
 
 void AParamotorActor::InitAudio()
@@ -219,9 +346,29 @@ void AParamotorActor::BeginPlay()
 	InteractionSphere->OnComponentEndOverlap.AddDynamic(this, &AParamotorActor::OnOverlapEnd);
 }
 
+void AParamotorActor::UpdatePropMeshRotation()
+{
+	FQuat PropQuat = FQuat(FVector::ForwardVector, PropRotation);
+	FVector PropCenter = FVector(15.0f, 0.0f, 73.0f);
+	for (int32 i = 0; i < PropMeshes.Num(); i++)
+	{
+		if (i >= PropMeshBaseTransforms.Num()) break;
+		FTransform BaseTransform = PropMeshBaseTransforms[i];
+		FVector RelPos = BaseTransform.GetTranslation();
+		FVector Offset = RelPos - PropCenter;
+		FVector NewOffset = PropQuat.RotateVector(Offset);
+		FVector NewPos = PropCenter + NewOffset;
+		FQuat NewRot = PropQuat * BaseTransform.GetRotation();
+		PropMeshes[i]->SetRelativeLocationAndRotation(NewPos, NewRot);
+	}
+}
+
 void AParamotorActor::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+	// Update A-arm pivots to follow the wing
+	UpdateAArmPivots();
 
 	if (EngineState == EEngineState::Cranking)
 	{
@@ -378,24 +525,7 @@ void AParamotorActor::Tick(float DeltaTime)
 		// At full throttle (7800 RPM): prop is a blur
 		// Prop rotation from real angular velocity (already computed above as PropOmega)
 		PropRotation += PropOmega * DeltaTime;
-
-		// Rotate prop meshes around the X axis (prop shaft)
-		{
-			FQuat PropQuat = FQuat(FVector::ForwardVector, PropRotation);
-			for (int32 i = 0; i < PropMeshes.Num(); i++)
-			{
-				if (i >= PropMeshBaseTransforms.Num()) break;
-				// Rotate from BASE transform (not current) to avoid compounding
-				FTransform BaseTransform = PropMeshBaseTransforms[i];
-				FVector RelPos = BaseTransform.GetTranslation();
-				FVector PropCenter = FVector(15.0f, 0.0f, 73.0f);
-				FVector Offset = RelPos - PropCenter;
-				FVector NewOffset = PropQuat.RotateVector(Offset);
-				FVector NewPos = PropCenter + NewOffset;
-				FQuat NewRot = PropQuat * BaseTransform.GetRotation();
-				PropMeshes[i]->SetRelativeLocationAndRotation(NewPos, NewRot);
-			}
-		}
+		UpdatePropMeshRotation();
 
 		// Sound: pitch and volume scale with RPM
 		float RPMRatio = (EngineRPM - IDLE_RPM) / (REDLINE_RPM - IDLE_RPM);
@@ -428,20 +558,7 @@ void AParamotorActor::Tick(float DeltaTime)
 			EngineRPM = FMath::FInterpTo(EngineRPM, 0.0f, DeltaTime, 0.5f);  // Windmilling + bearing friction
 			float PropOmega = GetPropRPM() * 2.0f * PI / 60.0f;
 			PropRotation += PropOmega * DeltaTime;
-
-			FQuat PropQuat = FQuat(FVector::ForwardVector, PropRotation);
-			for (int32 i = 0; i < PropMeshes.Num(); i++)
-			{
-				if (i >= PropMeshBaseTransforms.Num()) break;
-				FTransform BaseTransform = PropMeshBaseTransforms[i];
-				FVector RelPos = BaseTransform.GetTranslation();
-				FVector PropCenter = FVector(15.0f, 0.0f, 73.0f);
-				FVector Offset = RelPos - PropCenter;
-				FVector NewOffset = PropQuat.RotateVector(Offset);
-				FVector NewPos = PropCenter + NewOffset;
-				FQuat NewRot = PropQuat * BaseTransform.GetRotation();
-				PropMeshes[i]->SetRelativeLocationAndRotation(NewPos, NewRot);
-			}
+			UpdatePropMeshRotation();
 		}
 
 		// Engine cools down when off
@@ -497,6 +614,43 @@ void AParamotorActor::Interact(AParamotorCharacter* PlayerCharacter)
 	InteractionSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Equipped by player!"));
+}
+
+bool AParamotorActor::GetCarabinerWorldPositions(FVector& OutLeft, FVector& OutRight) const
+{
+	// Use the ring mesh components from the A-arm hierarchy
+	if (RingMeshLeft && RingMeshRight)
+	{
+		// Use mesh bounds origin (world-space center of the mesh geometry)
+		OutLeft = RingMeshLeft->Bounds.Origin;
+		OutRight = RingMeshRight->Bounds.Origin;
+		UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Carabiner rings — L=%s R=%s Dist=%.1fcm"),
+			*OutLeft.ToString(), *OutRight.ToString(), FVector::Dist(OutLeft, OutRight));
+		return true;
+	}
+
+	// Fallback: search MeshComponents for ring meshes (legacy path)
+	UStaticMeshComponent* LeftRing = nullptr;
+	UStaticMeshComponent* RightRing = nullptr;
+	for (UStaticMeshComponent* Comp : MeshComponents)
+	{
+		if (!Comp) continue;
+		FString CompName = Comp->GetName();
+		if (CompName.Contains(TEXT("WingClip_Ring_Left")))
+			LeftRing = Comp;
+		else if (CompName.Contains(TEXT("WingClip_Ring_Right")))
+			RightRing = Comp;
+	}
+
+	if (LeftRing && RightRing)
+	{
+		OutLeft = LeftRing->Bounds.Origin;
+		OutRight = RightRing->Bounds.Origin;
+		return true;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: WingClip rings NOT found in %d mesh components"), MeshComponents.Num());
+	return false;
 }
 
 void AParamotorActor::StartCranking()
@@ -585,142 +739,11 @@ void AParamotorActor::PlayWingInflate()
 // Based on propeller momentum theory and Moster 185 specifications
 // ============================================================
 
-float AParamotorActor::GetThrustForceN(float AirspeedMs) const
+AParamotorActor::FBladeElementResult AParamotorActor::ComputeBladeElement(float AirspeedMs) const
 {
-	if (EngineState != EEngineState::Running) return 0.0f;
-
-	// Effective throttle (dead zone below 10%)
-	float EffectiveThrottle = FMath::Max(0.0f, (Throttle - 0.1f) / 0.9f);  // Consistent dead zone
-
-	// === BLADE ELEMENT THEORY ===
-	// Real propeller thrust computed by integrating aerodynamic forces
-	// along each blade. Each blade section is a rotating airfoil.
-	//
-	// For each blade element at radius r:
-	//   Tangential velocity: V_t = ω × r  (from rotation)
-	//   Axial velocity: V_a = V_∞  (freestream/airspeed)
-	//   Relative velocity: V_rel = √(V_a² + V_t²)
-	//   Inflow angle: φ = atan(V_a / V_t)
-	//   Blade pitch angle: β = pitch_angle(r)  (geometric pitch)
-	//   Angle of attack: α = β - φ
-	//   Lift: dL = 0.5 × ρ × V_rel² × c × CL(α) × dr
-	//   Drag: dD = 0.5 × ρ × V_rel² × c × CD(α) × dr
-	//   Thrust: dT = dL × cos(φ) - dD × sin(φ)
-	//   Total thrust: T = N_blades × ∫ dT from r_hub to r_tip
-	//
-	// The Moster 185 prop:
-	//   Diameter: 130cm, 2 blades, ~8cm chord, ~50cm pitch
-	//   Max prop RPM: 7800/2.58 = 3023 RPM
-	//   Pitch angle varies from ~30° at root to ~15° at tip (twist)
+	FBladeElementResult Result = {0.0f, 0.0f};
 
 	float PropRPM = GetPropRPM();
-	// No RPM cutoff - blade element produces small forces naturally at low RPM
-
-	// Altitude-dependent air density (ISA model) — use this actor's location
-	float AltitudeM = GetActorLocation().Z / 100.0f;
-	float Rho = AirDensityAtAltitude(AltitudeM);
-	float Omega = PropRPM * 2.0f * PI / 60.0f;  // Angular velocity (rad/s)
-	float PropRadius = PROP_DIAMETER_CM / 2.0f / 100.0f;  // meters
-	float HubRadius = 0.05f;  // 5cm hub radius
-	float BladeChord = PROP_CHORD_CM / 100.0f;  // meters
-	float PitchAngle = FMath::Atan2(PROP_PITCH_CM / 100.0f, 2.0f * PI * PropRadius);  // Pitch angle at tip (rad)
-
-	// Throttle affects effective pitch (variable pitch approximation)
-	// At low throttle, the engine can't sustain full RPM, so effective pitch is lower
-	// This is modeled by scaling the RPM, not the pitch (fixed-pitch prop)
-	// RPMscale removed - RPM already in blade element integration
-
-	// Integrate thrust along the blade
-	float TotalThrustN = 0.0f;
-	int32 NumElements = (int32)PROP_BLADE_ELEMENTS;
-	float dr = (PropRadius - HubRadius) / NumElements;
-
-	for (int32 i = 0; i < NumElements; i++)
-	{
-		float r = HubRadius + (i + 0.5f) * dr;  // Element center radius (m)
-		float Vt = Omega * r;                    // Tangential velocity (m/s)
-		float Va = AirspeedMs;                   // Axial velocity (airspeed, m/s)
-		float Vrel = FMath::Sqrt(Va * Va + Vt * Vt);  // Relative velocity
-
-		if (Vrel < 0.1f) continue;
-
-		float Phi = FMath::Atan2(Va, FMath::Max(0.1f, Vt));  // Inflow angle (rad)
-
-		// Blade pitch angle: varies from root to tip (propeller twist)
-		// Root: high angle (~30°), Tip: lower angle (~15°)
-		// Linear twist from root to tip
-		float rNorm = (r - HubRadius) / (PropRadius - HubRadius);  // 0 at root, 1 at tip
-		float BetaRoot = 30.0f * PI / 180.0f;   // 30° at root
-		float BetaTip = PitchAngle;             // Computed from pitch/diameter
-		float Beta = FMath::Lerp(BetaRoot, BetaTip, rNorm);
-
-		// Angle of attack
-		float Alpha = Beta - Phi;  // radians
-
-		// Simple flat-plate airfoil model for propeller blade:
-		// CL = 2π × α (thin airfoil theory, valid for small α)
-		// CD = 0.02 + 0.05 × α² (profile drag + induced drag)
-		// Stall at α > 15° (flow separates)
-		float AlphaDeg = Alpha * 180.0f / PI;
-		float CL, CD;
-		if (FMath::Abs(AlphaDeg) < 15.0f)
-		{
-			CL = 2.0f * PI * Alpha;  // Thin airfoil theory
-			CD = 0.015f + 0.04f * Alpha * Alpha;  // Clark-Y propeller airfoil
-		}
-		else
-		{
-			// Stalled: CL drops, CD rises
-			CL = 0.5f * FMath::Sign(AlphaDeg);  // Post-stall flat plate CL
-			CD = 1.0f + 0.3f * (FMath::Abs(AlphaDeg) - 15.0f) * PI / 180.0f;  // Flat plate post-stall
-		}
-
-		// Forces on this blade element
-		float dL = 0.5f * Rho * Vrel * Vrel * BladeChord * CL * dr;
-		float dD = 0.5f * Rho * Vrel * Vrel * BladeChord * CD * dr;
-
-		// Thrust component (axial force)
-		float dT = dL * FMath::Cos(Phi) - dD * FMath::Sin(Phi);
-
-		TotalThrustN += dT;
-	}
-
-	// Multiply by number of blades
-	TotalThrustN *= PROP_NUM_BLADES;
-
-	// Engine power limit: T ≤ P × η / V (can't exceed engine power at high speed)
-	// Efficiency computed from blade element results: η = T × V / P
-	// At zero airspeed, η is undefined (static thrust), so no power limit applies
-	float EnginePowerW = GetEnginePowerW();
-	float MaxThrustFromPower;
-	if (AirspeedMs > 0.5f && EnginePowerW > 1.0f)
-	{
-		// Compute efficiency from the blade element thrust we just calculated
-		// η = T × V / P — this is the actual propulsive efficiency
-		float ComputedEfficiency = (TotalThrustN * AirspeedMs) / EnginePowerW;
-		// Clamp to physical range [0, 0.85] (real props max ~85% efficient)
-		ComputedEfficiency = FMath::Clamp(ComputedEfficiency, 0.0f, 0.85f);
-		MaxThrustFromPower = EnginePowerW * ComputedEfficiency / AirspeedMs;
-	}
-	else
-	{
-		MaxThrustFromPower = TotalThrustN;  // Static thrust — no power limit
-	}
-	TotalThrustN = FMath::Min(TotalThrustN, MaxThrustFromPower);
-
-	// RPM is already accounted for through Omega in the blade element integration.
-	// No additional RPM scaling — that would double-count the RPM effect.
-	return FMath::Max(0.0f, TotalThrustN);
-}
-
-float AParamotorActor::GetPropTorqueNM(float AirspeedMs) const
-{
-	if (EngineState != EEngineState::Running) return 0.0f;
-
-	float PropRPM = GetPropRPM();
-	// No RPM cutoff - blade element produces small forces naturally
-
-	// Altitude from this actor's location (not GetOwner — attachment doesn't set Owner)
 	float AltitudeM = GetActorLocation().Z / 100.0f;
 	float Rho = AirDensityAtAltitude(AltitudeM);
 	float Omega = PropRPM * 2.0f * PI / 60.0f;
@@ -731,7 +754,6 @@ float AParamotorActor::GetPropTorqueNM(float AirspeedMs) const
 
 	int32 NumElements = (int32)PROP_BLADE_ELEMENTS;
 	float dr = (PropRadius - HubRadius) / NumElements;
-	float TotalTorque = 0.0f;
 
 	for (int32 i = 0; i < NumElements; i++)
 	{
@@ -753,25 +775,52 @@ float AParamotorActor::GetPropTorqueNM(float AirspeedMs) const
 		if (FMath::Abs(AlphaDeg) < 15.0f)
 		{
 			CL = 2.0f * PI * Alpha;
-			CD = 0.02f + 0.05f * Alpha * Alpha;
+			CD = 0.015f + 0.04f * Alpha * Alpha;
 		}
 		else
 		{
-			CL = 0.3f * FMath::Sign(AlphaDeg);
-			CD = 0.5f + 0.1f * (FMath::Abs(AlphaDeg) - 15.0f) * PI / 180.0f;
+			CL = 0.5f * FMath::Sign(AlphaDeg);
+			CD = 1.0f + 0.3f * (FMath::Abs(AlphaDeg) - 15.0f) * PI / 180.0f;
 		}
 
 		float dL = 0.5f * Rho * Vrel * Vrel * BladeChord * CL * dr;
 		float dD = 0.5f * Rho * Vrel * Vrel * BladeChord * CD * dr;
 
-		// Torque component (tangential force × radius)
-		// dQ = (dL × sin(φ) + dD × cos(φ)) × r
-		float dQ = (dL * FMath::Sin(Phi) + dD * FMath::Cos(Phi)) * r;
-		TotalTorque += dQ;
+		// Thrust (axial) and torque (tangential × radius)
+		Result.ThrustN += dL * FMath::Cos(Phi) - dD * FMath::Sin(Phi);
+		Result.TorqueNM += (dL * FMath::Sin(Phi) + dD * FMath::Cos(Phi)) * r;
 	}
 
-	TotalTorque *= PROP_NUM_BLADES;
-	return TotalTorque;  // N·m
+	Result.ThrustN *= PROP_NUM_BLADES;
+	Result.TorqueNM *= PROP_NUM_BLADES;
+	return Result;
+}
+
+float AParamotorActor::GetThrustForceN(float AirspeedMs) const
+{
+	if (EngineState != EEngineState::Running) return 0.0f;
+
+	FBladeElementResult BE = ComputeBladeElement(AirspeedMs);
+	float TotalThrustN = BE.ThrustN;
+
+	// Engine power limit: T ≤ P × η / V (can't exceed engine power at high speed)
+	float EnginePowerW = GetEnginePowerW();
+	if (AirspeedMs > 0.5f && EnginePowerW > 1.0f)
+	{
+		float ComputedEfficiency = (TotalThrustN * AirspeedMs) / EnginePowerW;
+		ComputedEfficiency = FMath::Clamp(ComputedEfficiency, 0.0f, 0.85f);
+		float MaxThrustFromPower = EnginePowerW * ComputedEfficiency / AirspeedMs;
+		TotalThrustN = FMath::Min(TotalThrustN, MaxThrustFromPower);
+	}
+
+	return FMath::Max(0.0f, TotalThrustN);
+}
+
+float AParamotorActor::GetPropTorqueNM(float AirspeedMs) const
+{
+	if (EngineState != EEngineState::Running) return 0.0f;
+	FBladeElementResult BE = ComputeBladeElement(AirspeedMs);
+	return BE.TorqueNM;
 }
 
 float AParamotorActor::GetPropRPM() const

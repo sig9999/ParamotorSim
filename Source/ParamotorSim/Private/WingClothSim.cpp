@@ -57,18 +57,18 @@ void AWingActor::UpdateCellPressure(float DeltaTime, float ApparentWindMs, float
 	// Real cell filling: exponential approach like inflating a balloon.
 	// fill(t) = 1 - exp(-t/τ) where τ = fill time constant
 	// τ depends on wind speed: more wind = faster fill
-	// Research: inflation takes 3-5s in light wind, 1.5-3s in moderate wind
-	// At 7 m/s (16mph): τ ≈ 1.5s → 95% fill in 4.5s
-	// At 3 m/s (7mph): τ ≈ 4s → 95% fill in 12s
-	// At 1 m/s: τ ≈ 10s → barely fills
-	float FillTimeConstant = FMath::Max(0.5f, 5.0f / FMath::Max(0.5f, ApparentWindMs));  // Orifice flow: tau ~ V_cell / (Cd * A * V)
+	// Real inflation takes 5-8s in light wind, 3-5s in moderate wind
+	// At 7 m/s (16mph): τ ≈ 3s → 95% fill in 9s
+	// At 3 m/s (7mph): τ ≈ 8s → 95% fill in 24s
+	// At 1 m/s: τ ≈ 20s → barely fills
+	float FillTimeConstant = FMath::Max(2.0f, 12.0f / FMath::Max(0.5f, ApparentWindMs));
 	float ExponentialFillRate = 1.0f / FillTimeConstant;
 
 	// A-line pull opens the leading edge intakes wider → higher discharge coefficient
-	// Real physics: Cd_open ≈ 0.6 (normal intakes) → Cd_open ≈ 0.9 (A-lines pulled)
-	// This gives ~50% faster fill when A-lines are pulled.
-	float IntakeCd = bLiftingALines ? 0.9f : 0.6f;
-	float IntakeCdRatio = IntakeCd / 0.6f;  // 1.0 normal, 1.5 with A-lines
+	// Real physics: Cd_open ≈ 0.3 (closed intakes) → Cd_open ≈ 0.9 (A-lines pulled)
+	// Without A-lines, fill is 3x slower (intakes barely open)
+	float IntakeCd = bLiftingALines ? 0.9f : 0.3f;
+	float IntakeCdRatio = IntakeCd / 0.9f;  // 0.33 normal, 1.0 with A-lines
 
 	// Fill rate scales with pressure ratio — higher pressure = faster fill
 	// At threshold: slow fill. At 5x threshold: fast fill.
@@ -180,8 +180,9 @@ void AWingActor::UpdateCellPressure(float DeltaTime, float ApparentWindMs, float
 		// Flying AoA: lower trim AoA for level cruise at ~10 m/s
 		// Real level-flight CL at trim ≈ 0.74, from the polar that is ~2°.
 		// Real takeoff CL at ~8 m/s ≈ 1.18, from the polar that is ~8°.
-		// Use WingModel.TrimAoA for all states (flying and ground-run)
-		float CellBaseAoA = WingModel.TrimAoA;
+		// Ground-run/inflation uses a higher AoA than trim (wing is pitched up by A-lines).
+		// Flying uses trim AoA. The old hardcoded 8° is physically correct for inflation.
+		float CellBaseAoA = (WingState == EWingState::Flying) ? WingModel.TrimAoA : 8.0f;
 		float CellBrakeAoA = TrailingEdgeDeflectionDeg(BrakeInput);
 		float CellAoA = CellBaseAoA + CellBrakeAoA;
 		// Get real CL from polar at this AoA
@@ -193,9 +194,10 @@ void AWingActor::UpdateCellPressure(float DeltaTime, float ApparentWindMs, float
 		float CLScale = FMath::Abs(CLDenom) > 1e-3f ? (WingModel.CLMax - WingModel.CL0) / CLDenom : 1.0f;
 		float BaseCL = (PolarCL - BaseCL0) * CLScale + WingModel.CL0;
 
-		// Fill scaling: fill² (partially filled = crumpled, not partial airfoil)
+		// Fill scaling: linear (partially filled wing still generates partial lift).
+		// fill² was tested but kills lift at low fill, preventing inflation.
 		// Tension gating: no tension = parachute (no airfoil lift)
-		float CellCL = BaseCL * CellFill[cell] * CellFill[cell] * LineTensionFraction;  // fill² scaling
+		float CellCL = BaseCL * CellFill[cell] * LineTensionFraction;  // Linear fill scaling
 
 		// Stalled cells (from brake) lose lift progressively
 		// At full stall: CL drops to near zero (completely separated flow)
@@ -207,8 +209,9 @@ void AWingActor::UpdateCellPressure(float DeltaTime, float ApparentWindMs, float
 		float CellCD = WingModel.CD0 + FMath::Max(0.0f, PolarCD - BaseAirfoilCD0);
 		// Additional stalled drag from separated flow (not in the pre-stall polar)
 		CellCD += BrakeStallFactor * 1.0f;  // Bluff body CD=1.0 for stalled flow
-		// Deflated cells produce bluff-body drag scaled by (1 - fill)
-		CellCD += (1.0f - CellFill[cell]) * 0.8f;
+		// Bluff-body drag only for nearly-empty cells (avoid excessive drag during inflation)
+		if (CellFill[cell] < 0.1f)
+			CellCD += (1.0f - CellFill[cell] / 0.1f) * 0.8f;
 
 		// Per-cell apparent wind: spanwise variation from wind gradient + turbulence
 		// Real wings see slightly different wind at each cell due to:
@@ -493,17 +496,18 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		float WindDragN = 0.5f * AIR_DENSITY_SEA_LEVEL * WindMs * WindMs * WindDragArea * 1.2f;
 		FVector WindDragForce = ShiftedWindDir.GetSafeNormal() * WindDragN * CM_PER_M / EffectiveMassKg;
 
-		// Line tension: pulls wing toward carabiner when at line length
+		// Line tension: gentle spring force (stable at 60fps).
+		// Real paracord stiffness (250000 N/m) is too stiff for 60fps Verlet,
+		// so we use a moderate spring + velocity damping. The hard position
+		// clamp is applied after integration (see below).
 		FVector LineTensionForce = FVector::ZeroVector;
-		if (DistFromCarab > LINE_LENGTH_CM * 0.7f)
+		float MaxLineDist = LINE_LENGTH_CM * 0.7f;
+		if (DistFromCarab > MaxLineDist)
 		{
-			float Excess = DistFromCarab - LINE_LENGTH_CM * 0.7f;
-			// Line tension: real paracord stiffness ~5000 N for 2% stretch on 7m line
-		// k_line = F / (ΔL / L) = 5000 / 0.02 = 250000 N/m
-		float LineStiffnessNm = 250000.0f;  // N/m (real paracord)
-		float TensionStrength = LineStiffnessNm / EffectiveMassKg * CM_PER_M;  // cm/s² per cm stretch
+			float Excess = DistFromCarab - MaxLineDist;
 			FVector TensionDir = -ToWing / DistFromCarab;
-			LineTensionForce = TensionDir * Excess * TensionStrength * CM_PER_M / EffectiveMassKg;
+			// Moderate spring: 500 cm/s² per cm of stretch (stable at 60fps)
+			LineTensionForce = TensionDir * Excess * 500.0f;
 		}
 
 		// Air damping: resists motion through the air
@@ -533,30 +537,45 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 			WingGroundVel.Z = 0.0f;
 		}
 
+		// Hard line-length constraint: clamp wing to line distance from carabiner
+		FVector NewToWing = NewPos - CarabMid;
+		NewToWing.Z = 0.0f;
+		float NewDist = NewToWing.Size();
+		if (NewDist > MaxLineDist)
+		{
+			FVector ClampDir = NewToWing / NewDist;
+			NewPos = CarabMid + ClampDir * MaxLineDist;
+			NewPos.Z = FMath::Max(NewPos.Z, GZ);  // keep above ground
+			// Kill outward velocity
+			float OutwardVel = FVector::DotProduct(WingGroundVel, ClampDir);
+			if (OutwardVel > 0.0f)
+				WingGroundVel -= ClampDir * OutwardVel;
+		}
+
 		SetActorLocation(NewPos, false);
 	}
 
 	// === NATURAL STATE TRANSITION: Connected → Inflating ===
-	// The wing transitions to Inflating when cells actually start filling from wind.
-	// This happens when there's enough apparent wind (with or without A-lines pulled).
-	// A-lines pulled = intakes open wider = fills in lighter wind.
-	// No A-lines = intakes normal = needs more wind to start filling.
-	if (WingState == EWingState::Connected)
+	// The wing only transitions to Inflating when the pilot pulls A-lines (R key).
+	// Without A-lines, the leading edge intakes are closed and wind alone
+	// cannot fill the cells enough to inflate. This is realistic — you must
+	// actively pull the A-lines to start inflation.
+	if (WingState == EWingState::Connected && bLiftingALines)
 	{
-		// Check if any cells have started filling
+		// Check if cells have started filling from A-line pull + wind
 		float AvgFill = 0.0f;
 		for (int32 c = 0; c < NUM_WING_CELLS; c++)
 			AvgFill += CellFill[c];
 		AvgFill /= NUM_WING_CELLS;
-		// Transition when cells start filling (even slightly)
-		if (AvgFill > 0.1f)
+		// Transition when cells start filling from A-line pull
+		if (AvgFill > 0.05f)
 		{
 			WingState = EWingState::Inflating;
 			// Transfer ground velocity to flight velocity for continuity
 			WingVel = WingGroundVel;
 			WingGroundVel = FVector::ZeroVector;
-			UE_LOG(LogTemp, Warning, TEXT("WingActor: Natural inflation started (fill=%.0f%%, wind=%.1f m/s, A-lines=%s)"),
-				AvgFill * 100.0f, CurrentWindSpeed, bLiftingALines ? TEXT("yes") : TEXT("no"));
+			UE_LOG(LogTemp, Warning, TEXT("WingActor: Inflation started from A-line pull (fill=%.0f%%, wind=%.1f m/s)"),
+				AvgFill * 100.0f, CurrentWindSpeed);
 		}
 	}
 
@@ -664,18 +683,28 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		}
 		FVector ALinesPullForce = PullDir * (ALinesPullN / EffectiveMassKg) * CM_PER_M;
 
-		// === FORCE 2: WIND CATCH (ram-air pressure on cell intakes) ===
-		// This is the force that initially lifts the fabric off the ground during inflation.
-		// It only matters when cells are NOT yet filled — once cells are pressurized,
-		// the aerodynamic lift (Force 3) takes over. Wind catch fades with fill.
-		// F = 0.5 * ρ * V² * S_intake (cell intake area, only on unfilled cells)
+		// === FORCE 2: WIND CATCH + SAIL EFFECT (lifts fabric off ground) ===
+		// Two components:
+		// a) Ram-air pressure on cell intakes (internal, pressurizes cells)
+		// b) SAIL EFFECT: wind pushes on the entire wing surface like a parachute/sail.
+		//    This is what physically lifts the fabric off the ground during inflation.
+		//    A 25m² wing in 6 m/s wind catches ~150N of sail force — more than enough
+		//    to lift a 5.6kg wing (55N). This is why the wing "shoots up" in real life.
+		// The sail effect fades as cells fill (inflated wing becomes an airfoil, not a sail).
 		float UnfilledFraction = 1.0f - CellFillFactor;
-		// Intake area from real geometry: cell height × cell width × number of open cells
-		// A-lines pulled = intakes fully open (larger effective opening)
-		float IntakeAreaPerCell = WingModel.WingArea / NUM_WING_CELLS * 0.08f;  // Real intake ~8% of cell face  // ~5% of cell face
+		// (a) Ram-air intake pressure (small but drives cell fill)
+		float IntakeAreaPerCell = WingModel.WingArea / NUM_WING_CELLS * 0.08f;
 		float IntakeArea = IntakeAreaPerCell * NUM_WING_CELLS * UnfilledFraction;
-		IntakeArea *= (bLiftingALines ? 1.3f : 1.0f);  // A-lines open scallops ~30%  // A-lines open intakes wider
-		float WindCatchN = 0.5f * Rho * ApparentWindMs * ApparentWindMs * IntakeArea;
+		IntakeArea *= (bLiftingALines ? 1.3f : 1.0f);
+		float RamPressureN = 0.5f * Rho * ApparentWindMs * ApparentWindMs * IntakeArea;
+		// (b) Sail effect: wind drag on the full wing surface (unfilled portion only)
+		// CD_sail ≈ 1.2 (parachute/sail drag coefficient for fabric)
+		// The wing is lying on the ground face-up, so wind hits the full area.
+		float SailArea = WingModel.WingArea * UnfilledFraction;
+		float SailCD = 1.2f;  // Fabric sail drag coefficient
+		float SailForceN = 0.5f * Rho * ApparentWindMs * ApparentWindMs * SailArea * SailCD;
+		// Total wind catch = ram pressure + sail effect
+		float WindCatchN = RamPressureN + SailForceN;
 		FVector WindCatchForce = FVector(0, 0, (WindCatchN / EffectiveMassKg) * CM_PER_M);
 
 		// === FORCE 3: CELL LIFT (aerodynamic lift from pressurized airfoil) ===
@@ -762,13 +791,17 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// Real physics: the wing has inertia (EffectiveMassKg) and the pilot
 		// accelerates. The wing feels a pseudo-force from the pilot's acceleration.
 		// F = -m_wing × a_pilot (in the pilot's frame, the wing feels -a_pilot)
-		// No magic clamps — the force is naturally bounded by pilot acceleration.
+		// This is what causes overshoot: when pilot stops, a_pilot is negative
+		// (decelerating), so the wing feels a forward force and overshoots.
+		// When pilot accelerates, wing falls behind (lags).
+		// The mass ratio determines how much the wing responds — in reality
+		// the wing+pilot system is a double pendulum and the wing swings freely.
 		FVector PilotHorizVel = FVector(PilotVel.X, PilotVel.Y, 0.0f);
 		FVector PilotAccel = (PilotHorizVel - PrevPilotVel) / FMath::Max(DeltaTime, 0.02f);
-		// Total suspended mass = pilot (already includes paramotor+fuel) + wing + lines
-		float TotalSuspendedMassKg = PilotWeight + WingModel.WingWeight + 1.5f;
-		float MassRatio = EffectiveMassKg / FMath::Max(1.0f, TotalSuspendedMassKg);
-		FVector InertialLagForce = -PilotAccel * MassRatio * CM_PER_M;
+		// Use full effective mass ratio — the wing swings as a free pendulum
+		// When pilot decelerates from 3 m/s to 0 in 0.3s, that's -10 m/s²
+		// Force on wing = m_eff × 10 = ~170N → significant overshoot
+		FVector InertialLagForce = -PilotAccel * CM_PER_M;
 		PrevPilotVel = PilotHorizVel;
 
 		// === BRAKE SURGE (forward force when brakes released) ===
@@ -879,6 +912,12 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 			+ GravityForce + PendulumForce + WindDragForce + BrakeDampForce
 			+ AirDamping + TurbulenceForce + InertialLagForce + YawedFlightForce + BrakeSurgeForce;
 		WingVel += TotalForce * DeltaTime;
+
+		// Velocity damping — light, only enough to prevent numerical jitter.
+		// Real wings have some air damping but NOT enough to kill momentum in 0.3s.
+		// The wing should overshoot, swing, and pendulum naturally from inertia.
+		// Damping rate of 0.5/s means momentum decays over ~2 seconds (realistic).
+		WingVel *= FMath::Clamp(1.0f - 0.5f * DeltaTime, 0.95f, 1.0f);
 
 		// === LINE CONSTRAINT (always active when wing is off ground) ===
 		// Lines can only pull — they stop the wing from going BEYOND line length.
@@ -1039,11 +1078,12 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 
 			if (!bLiftingALines)
 			{
-				// R released — decay inflation if wing is still low
-				float DecayRate = (InflationProgress > 0.5f) ? 0.1f : 0.3f;
-				InflationProgress = FMath::Clamp(InflationProgress - DecayRate * DeltaTime, 0.0f, 1.0f);
-				if (InflationProgress <= 0.01f)
+				// R released — decay inflation only if cells are actually losing fill.
+				// Hysteresis: start inflation at 10% fill, only lose at <2% fill.
+				// This prevents rapid oscillation between Connected and Inflating.
+				if (CellFillFactor < 0.02f && InflationHeight < 50.0f)
 				{
+					// Cells nearly empty AND wing is low — lose inflation
 					WingState = EWingState::Connected;
 					InflationHeight = 0.0f;
 					InflationVelocity = 0.0f;
@@ -1062,6 +1102,8 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 					}
 					UE_LOG(LogTemp, Warning, TEXT("WingActor: Inflation lost"));
 				}
+				// If cells still have fill (wind keeping them pressurized),
+				// inflation continues naturally even without A-lines held.
 			}
 
 			// Transition to Inflated: requires height, cell fill, AND line tension
@@ -1172,7 +1214,6 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		SetActorRotation(DesiredRot);
 
 		// Debug log
-		static float InflLogTimer = 0.0f;
 		InflLogTimer += DeltaTime;
 		if (InflLogTimer > 0.2f)
 		{

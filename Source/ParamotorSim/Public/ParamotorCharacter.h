@@ -64,10 +64,10 @@ public:
 	bool bLeftBrakePulling = false;   // Q held — pull left arm down
 	bool bRightBrakePulling = false;  // E held — pull right arm down
 
-	// === WEIGHT SHIFT (mouse look while flying) ===
-	// Looking left/right while flying shifts pilot weight instead of yawing.
-	// WeightShift: -1 = full left, 0 = centered, +1 = full right
-	// This lowers the corresponding riser and initiates a weight-shift turn.
+	// === WEIGHT SHIFT (A/D keys while flying) ===
+	// A = shift left (lowers left riser → turns left)
+	// D = shift right (lowers right riser → turns right)
+	// Mouse only orbits the camera when flying, does not control weight shift.
 	float WeightShift = 0.0f;
 	float WeightShiftTarget = 0.0f;  // Target from mouse input
 	float WeightShiftVisualRoll = 0.0f;  // Smoothed visual roll for character mesh
