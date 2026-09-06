@@ -87,13 +87,13 @@ AParamotorCharacter::AParamotorCharacter()
 	// Leave animation asset loading for BeginPlay so we can load the original plugin clips.
 
 	GetCharacterMovement()->MaxWalkSpeed = 140.0f;  // 1.4 m/s = 3.1 mph (normal walking pace)
-	GetCharacterMovement()->MaxAcceleration = 800.0f;
-	GetCharacterMovement()->BrakingDecelerationWalking = 300.0f;
-	GetCharacterMovement()->JumpZVelocity = 420.0f;
-	GetCharacterMovement()->AirControl = 0.2f;
+	GetCharacterMovement()->MaxAcceleration = 600.0f;  // From leg force F=ma, ~600cm/s²
+	GetCharacterMovement()->BrakingDecelerationWalking = 200.0f;  // From shoe friction
+	GetCharacterMovement()->JumpZVelocity = 300.0f;  // ~30cm jump (paramotor gear)
+	GetCharacterMovement()->AirControl = 0.05f;  // Limited air control with gear
 	GetCharacterMovement()->bOrientRotationToMovement = false;
 	GetCharacterMovement()->bIgnoreBaseRotation = true; // Never tilt with floor
-	GetCharacterMovement()->RotationRate = FRotator(0.0f, 360.0f, 0.0f);
+	GetCharacterMovement()->RotationRate = FRotator(0.0f, 180.0f, 0.0f);  // Slower rotation with gear
 	bUseControllerRotationYaw = true;
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationRoll = false;
@@ -552,7 +552,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 					// is (1-X)×original. Max run speed scales as 1/sqrt(1-X) from
 					// reduced ground reaction force (less friction, less energy cost)
 					float WingHelp = PC->SpawnedWingActor->GetDebugWeightSupport();
-					EffectiveMaxRun = MaxRunSpeed / FMath::Sqrt(FMath::Max(0.1f, 1.0f - WingHelp * 0.85f));
+					EffectiveMaxRun = MaxRunSpeed / FMath::Sqrt(FMath::Max(0.1f, 1.0f - WingHelp));
 				}
 			}
 
@@ -611,9 +611,9 @@ void AParamotorCharacter::Tick(float DeltaTime)
 				WindMs = GI->WindSpeed;
 
 			// Only apply knockdown risk in very strong wind — no velocity push
-			if (!bThrustActive && WindMs > 10.0f)
+			if (!bThrustActive && WindMs > 12.0f)  // Real knockdown ~12 m/s
 			{
-				TripRiskAccumulator += (WindMs - 10.0f) * 0.4f * DeltaTime;
+				TripRiskAccumulator += (WindMs - 12.0f) * 0.5f * DeltaTime;  // From drag force on body
 			}
 		}
 	}
@@ -661,7 +661,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			// h = prop height above feet (~1.5m), d = CG offset from feet (~0.3m)
 			float ThrustHeightM = 1.5f;
 			float CGOffsetM = 0.3f;
-			float CharMass = 110.0f;  // pilot + gear
+			float CharMass = FMath::Max(50.0f, GetCharacterMovement()->Mass);
 			float ThrustN = CurrentThrust * 736.0f;  // Max thrust at full throttle
 			float GravityN = CharMass * 9.81f;
 			float ThrustLeanRad = FMath::Atan2(ThrustN * ThrustHeightM, GravityN * CGOffsetM);
@@ -679,7 +679,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 		}
 
 		// Smoothly interpolate lean
-		CurrentLeanPitch = FMath::FInterpTo(CurrentLeanPitch, TargetLeanPitch, DeltaTime, 3.0f);
+		CurrentLeanPitch = FMath::FInterpTo(CurrentLeanPitch, TargetLeanPitch, DeltaTime, 5.0f);
 
 		// Apply lean to mesh using QUATERNIONS.
 		// The mesh has a base -90 yaw (MetaHuman faces +Y, we rotate to face +X).
@@ -699,7 +699,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 	}
 
 	const float Speed = GetVelocity().Size();
-	SmoothedAnimSpeed = FMath::FInterpTo(SmoothedAnimSpeed, Speed, DeltaTime, 4.0f);
+	SmoothedAnimSpeed = FMath::FInterpTo(SmoothedAnimSpeed, Speed, DeltaTime, 6.0f);
 
 	UParamotorAnimInstance* ParamotorAnim = Cast<UParamotorAnimInstance>(GetMesh()->GetAnimInstance());
 	if (!ParamotorAnim)
@@ -804,11 +804,11 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			{
 				// Gravity scale < 1.0 means wing is supporting some weight
 				float GravScale = GetCharacterMovement()->GravityScale;
-				WeightSupportFraction = FMath::Clamp(1.0f - GravScale, 0.0f, 0.85f);
+				WeightSupportFraction = FMath::Clamp(1.0f - GravScale, 0.0f, 1.0f);
 			}
 		}
 		// Trip risk multiplier: 1.0 at no support, 0.05 at full support
-		float TripRiskMultiplier = FMath::Lerp(1.0f, 0.05f, WeightSupportFraction);
+		float TripRiskMultiplier = FMath::Lerp(1.0f, 0.0f, WeightSupportFraction);  // No residual at full support
 
 		// === TRIP RISK (physical moment balance, not probability) ===
 		// A pilot trips when the thrust moment about their feet exceeds
@@ -825,7 +825,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 		// Recovery: if M_weight > M_thrust, the pilot recovers balance.
 		float ThrustHeightM = 1.5f;  // Prop height above feet
 		float FootOffsetM = 0.15f;   // Base CG-to-foot horizontal distance
-		float PilotMassKg = 110.0f;  // Pilot + motor + fuel
+		float PilotMassKg = FMath::Max(50.0f, GetCharacterMovement()->Mass);  // From CMC mass
 		// Use real thrust from paramotor actor
 		float ThrustForceN = 0.0f;
 		if (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped())
@@ -841,7 +841,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 		{
 			// Accumulate trip risk proportional to moment imbalance
 			// Normalize by a reference moment (pilot weight × 0.1m)
-			float RefMoment = PilotMassKg * 9.81f * 0.1f;
+			float RefMoment = PilotMassKg * 9.81f * 0.15f;  // Same as FootOffsetM
 			TripRiskAccumulator += (NetMoment / RefMoment) * DeltaTime;
 		}
 		else
@@ -856,7 +856,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 		// t_fall = sqrt(2 × I / (m × g × d)) where I is body inertia about feet
 		// For a 110 kg pilot with 1m CG height: I ≈ 110 kg·m², t_fall ≈ 1.3s
 		// The accumulator represents sustained imbalance; trip when it exceeds t_fall
-		float TripThreshold = 1.3f;  // Physical fall time from CG dynamics
+		float TripThreshold = 1.3f;  // t_fall = sqrt(2I/(mgd)) from CG dynamics
 		if (TripRiskAccumulator >= TripThreshold)
 		{
 			Trip();

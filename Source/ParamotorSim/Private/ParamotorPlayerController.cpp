@@ -6,6 +6,7 @@
 #include "ParamotorActor.h"
 #include "WingActor.h"
 #include "ParamotorCharacter.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Blueprint/UserWidget.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/StaticMeshActor.h"
@@ -274,16 +275,19 @@ void AParamotorPlayerController::OnInteract()
 		{
 			// Carabiner points are on the character's harness, at chest/shoulder height
 			// Real measurement: 42cm total spacing = 21cm each side from center
-			// MetaHuman actor origin is at feet; chest height is ~140cm for a standing adult
+			// MetaHuman actor origin is at feet; chest/shoulder height ~140cm for standing adult
 			FVector CharRight = Char->GetActorRightVector();
-			FVector LeftCarabiner = PlayerPos + CharRight * -21.0f + FVector(0, 0, 70.0f);
-			FVector RightCarabiner = PlayerPos + CharRight * 21.0f + FVector(0, 0, 70.0f);
+			FVector LeftCarabiner = PlayerPos + CharRight * -21.0f + FVector(0, 0, 140.0f);
+			FVector RightCarabiner = PlayerPos + CharRight * 21.0f + FVector(0, 0, 140.0f);
 
 			SpawnedWingActor->ConnectRisers(SpawnedParamotorActor, LeftCarabiner, RightCarabiner);
 
-			// Set pilot weight: character (~80kg) + paramotor (~25kg) + fuel (~5kg) = ~110kg
-			// In a real game this would be configurable
-			SpawnedWingActor->SetPilotWeight(110.0f);
+			// Pilot weight: character mass + paramotor mass + fuel mass
+			float CharMass = 80.0f;
+			if (auto* MC = Char->GetCharacterMovement()) CharMass = FMath::Max(50.0f, MC->Mass);
+			float ParamotorMass = (SpawnedParamotorActor) ? 25.0f : 0.0f;
+			float FuelMass = 5.0f;
+			SpawnedWingActor->SetPilotWeight(CharMass + ParamotorMass + FuelMass);
 
 			UE_LOG(LogTemp, Warning, TEXT("Risers connected to paramotor (pilot weight: %.0f kg, max: %.0f kg)"),
 				SpawnedWingActor->GetPilotWeight(), SpawnedWingActor->GetMaxTakeoffWeight());
@@ -577,8 +581,8 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 		{
 			FVector CharPos = Char3->GetActorLocation();
 			FVector CharRight = Char3->GetActorRightVector();
-			FVector LeftCarabiner = CharPos + CharRight * -21.0f + FVector(0, 0, 70.0f);
-			FVector RightCarabiner = CharPos + CharRight * 21.0f + FVector(0, 0, 70.0f);
+			FVector LeftCarabiner = CharPos + CharRight * -21.0f + FVector(0, 0, 140.0f);
+			FVector RightCarabiner = CharPos + CharRight * 21.0f + FVector(0, 0, 140.0f);
 			SpawnedWingActor->UpdateCarabinerPositions(LeftCarabiner, RightCarabiner);
 
 			// Send brake input to wing — PROGRESSIVE (ramp up/down like real brake handles)
@@ -676,7 +680,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.CD0 = 0.040f;    // Higher drag (small chord, low Re)
 		Wing->WingModel.AR = 5.8f;       // Higher aspect ratio (long thin wing)
 		Wing->WingModel.StallAoA = 13.0f; // Stalls earlier — twitchy
-		break;
+
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
 	case 1:  // Sig 20 — 20m², max 110kg (light pilot)
 		Wing->WingModel.Name = TEXT("Sig 20");
 		Wing->WingModel.WingArea = 20.0f;
@@ -687,7 +692,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.CD0 = 0.036f;
 		Wing->WingModel.AR = 5.2f;
 		Wing->WingModel.StallAoA = 15.0f;
-		break;
+
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
 	case 2:  // Sig 22 — 22m², max 120kg (light-to-medium pilot)
 		Wing->WingModel.Name = TEXT("Sig 22");
 		Wing->WingModel.WingArea = 22.0f;
@@ -698,7 +704,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.CD0 = 0.036f;
 		Wing->WingModel.AR = 5.1f;
 		Wing->WingModel.StallAoA = 15.0f;
-		break;
+
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
 	case 3:  // Sig 25 — 25m², max 130kg (standard)
 		// Realistic EN-A beginner wing values:
 		// CL0=0.50, CLMax=1.5, CD0=0.037, AR=5.0
@@ -712,7 +719,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.CD0 = 0.037f;
 		Wing->WingModel.AR = 5.0f;
 		Wing->WingModel.StallAoA = 15.0f;
-		break;
+
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
 	case 4:  // Sig 30 — 30m², max 160kg (heavy pilot / tandem)
 		Wing->WingModel.Name = TEXT("Sig 30");
 		Wing->WingModel.WingArea = 30.0f;
@@ -723,7 +731,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.CD0 = 0.038f;
 		Wing->WingModel.AR = 4.5f;
 		Wing->WingModel.StallAoA = 16.0f;
-		break;
+
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
 	case 5:  // Sig 35 — 35m², max 180kg (tandem / very heavy)
 		Wing->WingModel.Name = TEXT("Sig 35");
 		Wing->WingModel.WingArea = 35.0f;
@@ -734,7 +743,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.CD0 = 0.040f;
 		Wing->WingModel.AR = 4.2f;
 		Wing->WingModel.StallAoA = 16.0f;
-		break;
+
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
 	case 6:  // MacPara Charger 25M — real reflex paramotor wing (DGAC)
 		// Real specs from MacPara Charger 1 user manual (page 39):
 		//   Zoom: 95.3% (of size 28 reference)
@@ -760,6 +770,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.CD0 = 0.035f;    // Clean reflex profile
 		Wing->WingModel.AR = 5.14f;      // Real Charger aspect ratio
 		Wing->WingModel.StallAoA = 16.0f; // Reflex stalls later
+
+		Wing->WingModel.TrimAoA = 1.5f;  // Reflex wing trims at lower AoA
 		break;
 	default:
 		Wing->WingModel.Name = TEXT("Sig 25");
@@ -771,7 +783,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.CD0 = 0.037f;
 		Wing->WingModel.AR = 5.0f;
 		Wing->WingModel.StallAoA = 15.0f;
-		break;
+
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
 	}
 }
 

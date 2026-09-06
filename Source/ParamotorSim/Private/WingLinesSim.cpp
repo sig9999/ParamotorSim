@@ -107,7 +107,7 @@ for (int32 rib = 0; rib < PGNumRibs; rib++)
 	if (Idx < Particles.Num())
 		MaxRibY = FMath::Max(MaxRibY, FMath::Abs(Particles[Idx].Pos.Y));
 }
-float HalfSpan = FMath::Max(1.0f, MaxRibY);  // cm, half wingspan (572cm for Charger 25M)
+float HalfSpan = FMath::Max(100.0f, MaxRibY);  // Min 1m if mesh invalid
 // Real MacPara Charger 25M measurements:
 // - Riser length: 52.5cm (525mm neutral, all 5 risers A/A1/B/C/D)
 // - Total line length carabiner→canopy: ~741-773cm (riser + main line)
@@ -140,8 +140,8 @@ CarabP.Radius = CarabinerRadius;
 CarabP.Color =
 FLinearColor(0.8f, 0.8f, 0.8f, 1.0f);
 // Metal
-		CarabP.Mass = 5.0f;
-CarabP.Damping = 0.95f;
+		CarabP.Mass = 0.07f;  // Real carabiner ~70g
+CarabP.Damping = 0.99f;  // Low damping - metal
 CarabP.Side = side;
 CarabP.Level = -1;
 CarabP.RibIdx = -1;
@@ -164,8 +164,8 @@ RiserP.Color =
 
 FLinearColor(0.25f, 0.25f, 0.25f, 1.0f);
 // Dark webbing
-		RiserP.Mass = 3.0f;
-RiserP.Damping = 0.95f;
+		RiserP.Mass = 0.15f;  // Real riser webbing ~150g
+RiserP.Damping = 0.99f;
 RiserP.Side = side;
 RiserP.Level = -1;
 RiserP.RibIdx = -1;
@@ -201,8 +201,8 @@ BrakeHandleP.Radius = 0.3f;
 BrakeHandleP.Color =
 FLinearColor(0.2f, 0.2f, 0.8f, 1.0f);
 // Blue handle
-		BrakeHandleP.Mass = 0.5f;
-BrakeHandleP.Damping = 0.9f;
+		BrakeHandleP.Mass = 0.03f;  // Real brake handle ~30g
+BrakeHandleP.Damping = 0.98f;
 BrakeHandleP.Side = side;
 BrakeHandleP.Level = (
 int32)ELineLevel::Brake;
@@ -259,14 +259,14 @@ for (int32 seg = 0; seg <= NumSegs; seg++)					{
 						FLineParticle LP;
 float Dist = (float)seg * (BrakeLineTotal / (NumSegs + 1));
 LP.Pos = CanopyPos + LineDir * Dist;
-LP.Pos.Z = FMath::Max(LP.Pos.Z, 5.0f);
+LP.Pos.Z = FMath::Max(LP.Pos.Z, 0.0f);
 LP.OldPos = LP.Pos;
 LP.bPinned = (seg == 0);
 LP.CanopyParticleIdx = (seg == 0) ? CanopyIdx : -1;
 LP.Radius = Lvl.Radius;
 LP.Color = Lvl.Color;
-LP.Mass = 0.5f;
-LP.Damping = 0.9f;
+LP.Mass = 0.004f;  // Dyneema 1.5mm: 2g/m x 2m
+LP.Damping = 0.99f;  // Low damping - line dynamics
 LP.Side = side;
 LP.Level = (int32)Lvl.Level;
 LP.RibIdx = rib;
@@ -388,7 +388,7 @@ void AWingActor::SimulateLines(float DeltaTime){
 // For Dyneema 1.5mm: T~50N, μ~0.002 kg/m → c ~160 m/s
 // Response time: τ = L/c = 7m/160 = 0.044s → very fast
 // The FInterpTo rate corresponds to 1/τ ≈ 23/s
-float BrakeResponseSpeed = 23.0f;  // From line wave propagation physics
+float BrakeResponseSpeed = 1.0f / (LINE_LENGTH_CM / 100.0f / 160.0f);  // tau = L/c, c=160m/s
 	LeftBrakeAmount =
 FMath::FInterpTo(LeftBrakeAmount, LeftBrakeTarget, DeltaTime, BrakeResponseSpeed);
 RightBrakeAmount = FMath::FInterpTo(RightBrakeAmount, RightBrakeTarget, DeltaTime, BrakeResponseSpeed);
@@ -424,7 +424,7 @@ if (RiserIdx >= 0 && RiserIdx < LineParticles.Num())			{
 				FVector ToWing = WingWorldPos - CarabWorldPos;
 float DistToWing = ToWing.Size();
 FVector RiserDir = (DistToWing > 1.0f) ? (ToWing / DistToWing) : FVector(0, 0, -1.0f);
-FVector RiserWorldPos = CarabWorldPos + RiserDir * 49.0f;
+FVector RiserWorldPos = CarabWorldPos + RiserDir * RISER_LENGTH_CM;
 FVector RiserLocalPos = ActorTransform.InverseTransformPosition(RiserWorldPos);
 LineParticles[RiserIdx].Pos = RiserLocalPos;
 LineParticles[RiserIdx].OldPos = RiserLocalPos;
@@ -493,16 +493,16 @@ LP.Pos.Z -= Gravity * DeltaTime * DeltaTime;
 // === REAL WIND DRAG ON LINES ===
 // Each line segment is a cylinder in crossflow.
 // F = 0.5 * rho * V² * d * L * CD, where d=diameter, L=length, CD=1.0
-float LineDiameterM = LP.Radius * 0.001f * 2.0f;
-float SegLenM = 2.0f;
+float LineDiameterM = 0.0015f;  // Real 1.5mm Dyneema
+float SegLenM = 2.0f;  // Default segment length (m)
 // Apparent wind = wind - line velocity (line moves with wing)
 // During flight, also subtract pilot velocity for apparent wind
-FVector LineVel = (LP.Pos - LP.OldPos) / FMath::Max(DeltaTime, 0.016f);
+FVector LineVel = (LP.Pos - LP.OldPos) / FMath::Max(DeltaTime, 0.001f);
 FVector ApparentWindLocal = WindDirLocal * WindMs * 100.0f - PilotVelLocal - LineVel;
 float ApparentWindMs = ApparentWindLocal.Size() / 100.0f;
 FVector ApparentWindDir = ApparentWindLocal.GetSafeNormal();
 float LineDragN = 0.5f * AIR_DENSITY_SEA_LEVEL * ApparentWindMs * ApparentWindMs * LineDiameterM * SegLenM * 1.0f;
-float LineDragAccel = (LineDragN / FMath::Max(0.001f, LP.Mass * 0.001f)) * CM_PER_M;
+float LineDragAccel = (LineDragN / FMath::Max(0.0001f, LP.Mass)) * CM_PER_M;
 // Apply wind drag in apparent wind direction
 LP.Pos += ApparentWindDir * LineDragAccel * DeltaTime * DeltaTime;
 // Ground collision (in world space)
@@ -534,7 +534,7 @@ float HangDist = 26.0f + BrakeAmount * 40.0f;
 FVector HandleWorldPos = RiserWorldPos - FVector(0, 0, HangDist);
 // Don't let handle go below ground
 float GZ = GetGroundZ(HandleWorldPos);
-if (HandleWorldPos.Z < GZ + 5.0f)				HandleWorldPos.Z = GZ + 5.0f;
+if (HandleWorldPos.Z < GZ)				HandleWorldPos.Z = GZ;
 FVector HandleLocalPos = ActorTransform.InverseTransformPosition(HandleWorldPos);
 LineParticles[HandleIdx].Pos = HandleLocalPos;
 LineParticles[HandleIdx].OldPos = HandleLocalPos;
@@ -547,7 +547,7 @@ UpdateBrakeHandle(RightBrakeHandleIdx, RightRiserIdx, RightCarabinerPos, RightBr
 	// During flight, this is what actually holds the wing up — the lines
 	// transfer load from the canopy to the riser to the carabiner.
 	// More iterations during flight for stiffer lines (more load).
-	int32 NumConstraintIters = (WingState == EWingState::Inflated || WingState == EWingState::Flying) ? 8 : 6;
+	int32 NumConstraintIters = (WingState == EWingState::Inflated || WingState == EWingState::Flying) ? 10 : 6;  // More iterations for stiffer loaded lines
 	{
 		for (int32 iter = 0; iter < NumConstraintIters; iter++)		{
 			for (const FClothConstraint& C : LineConstraints)			{
@@ -578,7 +578,7 @@ for (const FLineAttachment& Att : LineAttachments)		{
 // Real Charger 25M: total carabiner-to-canopy = riser (52.5cm) + line length
 int32 CarabIdx = (Att.Side == 0) ? LeftCarabinerIdx : RightCarabinerIdx;
 // Per-level total lengths (riser + main line) from real Charger 25M data
-float TotalLineLen = 770.0f;  // Default (covers most levels with margin)
+float TotalLineLen = 745.0f;  // Default from Charger 25M data
 switch ((ELineLevel)Att.Level)
 {
 case ELineLevel::A:     TotalLineLen = 52.5f + 688.8f; break;  // 741.3cm
@@ -656,8 +656,8 @@ int32 VtxIdxBot = GetRibVertexIndex(Rib, PGPointsPerRib + Chord);
 if (VtxIdxBot >= 0 && VtxIdxBot < Particles.Num())						{
 							FClothParticle& CP = Particles[VtxIdxBot];
 if (!CP.bPinned && !CP.bGrabbed)							{
-								CP.Pos += PullLocal * Weight * 0.3f;  // 30% of load on bottom skin
-CP.OldPos += PullLocal * Weight * 0.3f;
+								CP.Pos += PullLocal * Weight * 0.4f;  // 40% on bottom skin (pressure distribution)
+CP.OldPos += PullLocal * Weight * 0.4f;
 }
 }
 }

@@ -139,15 +139,16 @@ Char->GetCharacterMovement()->bUseControllerDesiredRotation = false;
 // Set mesh to base relative rotation (MetaHuman -90° yaw)
 FQuat FlightBaseQuat(FVector::UpVector, FMath::DegreesToRadians(-90.0f));
 Char->GetMesh()->SetRelativeRotation(FlightBaseQuat);
-// DEBUG SHORTCUT: teleport just above ground to clear the ground collision check
-// Real takeoff goes through ground handling → kiting → running → natural lift-off
+// DEBUG SHORTCUT — editor/dev only. Real takeoff goes through ground handling.
+#if WITH_EDITOR || UE_BUILD_DEVELOPMENT
 FVector PawnLoc = Pawn->GetActorLocation();
 float GroundZ = GetGroundZ(PawnLoc);
 PawnLoc.Z = GroundZ + 500.0f;  // 5m — just enough to clear ground collision
 Pawn->SetActorLocation(PawnLoc, false);
 Char->GetCharacterMovement()->Velocity = FVector(0.0f, 0.0f, 100.0f);  // 1 m/s up
 PendulumAngle = 0.0f;
-PendulumAngularVel = 0.2f;
+PendulumAngularVel = 0.0f;  // Start at rest
+#endif
 PilotRollAngle = 0.0f;
 PilotRollRate = 0.0f;
 PrevThrottleAmount = ThrottleAmount;
@@ -159,7 +160,7 @@ UE_LOG(LogTemp, Warning, TEXT("WingActor: FORCED TAKEOFF!"));
 }
 
 void AWingActor::SetPilotWeight(float TotalWeightKg){
-	PilotWeight = FMath::Max(50.0f, TotalWeightKg);
+	PilotWeight = FMath::Max(40.0f, TotalWeightKg);  // Real min pilot ~40kg
 UE_LOG(LogTemp, Warning, TEXT("WingActor: Pilot weight set to %.1f kg (max=%.1f, loading=%.1f kg/m²)"),		PilotWeight, WingModel.MaxTakeoffWeight, GetWingLoading());
 }
 
@@ -273,7 +274,8 @@ for (const auto& P : Particles)	{
 		MinY = FMath::Min(MinY, P.Pos.Y);
 MaxY = FMath::Max(MaxY, P.Pos.Y);
 }
-	return FMath::Clamp((MaxY - MinY) / 800.0f, 0.0f, 1.0f);
+	float WingSpanCm = FMath::Sqrt(WingModel.WingArea * WingModel.AR) * 100.0f;
+	return FMath::Clamp((MaxY - MinY) / WingSpanCm, 0.0f, 1.0f);
 }
 
 bool AWingActor::IsMostlySpread() const {
@@ -285,8 +287,8 @@ float AWingActor::GetGroundZ(FVector Pos) const{
 FHitResult Hit;
 FCollisionQueryParams QueryParams;
 QueryParams.AddIgnoredActor(this);
-FVector Start = Pos + FVector(0, 0, 100.0f);
-FVector End = Pos - FVector(0, 0, 500.0f);
+FVector Start = Pos + FVector(0, 0, 200.0f);
+FVector End = Pos - FVector(0, 0, 1000.0f);
 if (GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_WorldStatic, QueryParams))		return Hit.Location.Z;
 return 0.0f;
 }
@@ -341,10 +343,10 @@ void AWingActor::UpdateDynamicWind(float DeltaTime, float GustAmplitude)
 	// Three independent axes: longitudinal, lateral, vertical
 	// Each gets its own white noise input filtered through the Dryden filter.
 
-	float BaseWind = 6.0f;
+	float BaseWind = 0.0f;  // No fake default wind
 	if (GetWorld() && GetWorld()->GetGameInstance<UParamotorGameInstance>())
 	{
-		BaseWind = FMath::Max(0.5f, GetWorld()->GetGameInstance<UParamotorGameInstance>()->WindSpeed);
+		BaseWind = FMath::Max(0.0f, GetWorld()->GetGameInstance<UParamotorGameInstance>()->WindSpeed);
 	}
 
 	// Turbulence intensity: σ in m/s
@@ -406,7 +408,7 @@ void AWingActor::UpdateDynamicWind(float DeltaTime, float GustAmplitude)
 	WindDirShift = TurbLatState / FMath::Max(1.0f, BaseWind);  // Ratio of lateral to base wind
 
 	// ASSIGN wind speed each frame (not accumulate — gusts are oscillations, not accelerations)
-	CurrentWindSpeed = FMath::Clamp(BaseWind + GustTotal + WindTurbulence, 0.0f, BaseWind + GustAmplitude * 2.0f);
+	CurrentWindSpeed = FMath::Max(0.0f, BaseWind + GustTotal + WindTurbulence);  // No cap - physical
 }
 
 void AWingActor::Tick(float DeltaTime){
@@ -447,7 +449,7 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
         float DynPressure = 0.5f * AIR_DENSITY_SEA_LEVEL * WindMs * WindMs;
         float WingspanM = FMath::Sqrt(WingModel.WingArea * WingModel.AR);
         float WingMassKg = WingModel.WingWeight;
-        float ApparentMassKg = WingMassKg * 0.5f + WingMassKg * 3.0f * CellFillFactor;
+        float ApparentMassKg = AIR_DENSITY_SEA_LEVEL * WingModel.WingArea * (WingspanM * 0.5f) * CellFillFactor * 0.5f;  // Potential flow added mass
         float EffectiveMassKg = WingMassKg + ApparentMassKg;
         float WingInertiaYaw = EffectiveMassKg * (WingspanM * 0.5f) * (WingspanM * 0.5f);
 
@@ -483,9 +485,9 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
     ToWing.Z = 0.0f;
     float ToWingDist = ToWing.Size();
     float DesiredYaw = WingGroundYaw;
-    if (ToWingDist > 100.0f)
+    if (ToWingDist > LINE_LENGTH_CM * 0.1f)
     {
-        float BlendWeight = FMath::Clamp((ToWingDist - 100.0f) / 300.0f, 0.0f, 0.4f);
+        float BlendWeight = FMath::Clamp((ToWingDist - LINE_LENGTH_CM * 0.1f) / (LINE_LENGTH_CM * 0.3f), 0.0f, 0.5f);
         float ToWingYaw = FMath::Atan2(ToWing.Y, ToWing.X) * 180.0f / PI;
         float YawDiff = ToWingYaw - WingGroundYaw;
         while (YawDiff > 180.0f) YawDiff -= 360.0f;

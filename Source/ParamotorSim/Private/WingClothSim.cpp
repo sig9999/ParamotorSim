@@ -61,7 +61,7 @@ void AWingActor::UpdateCellPressure(float DeltaTime, float ApparentWindMs, float
 	// At 7 m/s (16mph): τ ≈ 1.5s → 95% fill in 4.5s
 	// At 3 m/s (7mph): τ ≈ 4s → 95% fill in 12s
 	// At 1 m/s: τ ≈ 10s → barely fills
-	float FillTimeConstant = FMath::Max(1.0f, 10.0f / FMath::Max(0.5f, ApparentWindMs));
+	float FillTimeConstant = FMath::Max(0.5f, 5.0f / FMath::Max(0.5f, ApparentWindMs));  // Orifice flow: tau ~ V_cell / (Cd * A * V)
 	float ExponentialFillRate = 1.0f / FillTimeConstant;
 
 	// A-line pull opens the leading edge intakes wider → higher discharge coefficient
@@ -72,26 +72,26 @@ void AWingActor::UpdateCellPressure(float DeltaTime, float ApparentWindMs, float
 
 	// Fill rate scales with pressure ratio — higher pressure = faster fill
 	// At threshold: slow fill. At 5x threshold: fast fill.
-	float PressureRatio = (RamPressure > 0.01f) ? FMath::Min(5.0f, RamPressure / MinInflationPressure) : 0.0f;
+	float PressureRatio = (RamPressure > 0.01f) ? RamPressure / MinInflationPressure : 0.0f;
 	float FillRate = ExponentialFillRate * IntakeCdRatio * PressureRatio;
 
 	// Deflation: when no wind, cells lose air through porosity + open intakes
 	// Real wings deflate in 1-2 seconds when wind stops completely
-	float DeflationRate = 1.0f;  // 1/τ_deflate, τ ≈ 1s (fast deflation)
+	float DeflationRate = 0.5f + WingPorosity * 10.0f;  // From porosity + exit area
 	float LeakRate = WingPorosity;  // Additional porosity leak
 
 	// Per-side brake stall: based on actual AoA, not a fixed brake percentage
 	// Brake increases AoA via trailing edge deflection. Stall occurs when
 	// the total AoA (base + brake + turbulence) exceeds the stall angle.
 	// Real wings stall at ~15° AoA (from the polar data).
-	float LeftBrakeAoA = TrailingEdgeDeflectionDeg(BrakeLeft) * 0.8f;
-	float RightBrakeAoA = TrailingEdgeDeflectionDeg(BrakeRight) * 0.8f;
+	float LeftBrakeAoA = TrailingEdgeDeflectionDeg(BrakeLeft);
+	float RightBrakeAoA = TrailingEdgeDeflectionDeg(BrakeRight);
 	float LeftTotalAoA = 8.0f + LeftBrakeAoA;  // Ground AoA + brake AoA
 	float RightTotalAoA = 8.0f + RightBrakeAoA;
-	float StallAoADeg = 15.0f;  // From XFOIL polar (NACA 4415 stalls at ~15°)
+	float StallAoADeg = WingModel.StallAoA;
 	// Stall factor ramps from 0 at stall AoA to 1 at stall+5° (flow separation gradient)
-	float LeftBrakeStallFactor = FMath::Clamp((LeftTotalAoA - StallAoADeg) / 5.0f, 0.0f, 1.0f);
-	float RightBrakeStallFactor = FMath::Clamp((RightTotalAoA - StallAoADeg) / 5.0f, 0.0f, 1.0f);
+	float LeftBrakeStallFactor = FMath::Clamp((LeftTotalAoA - StallAoADeg) / FMath::Max(1.0f, StallAoADeg * 0.3f), 0.0f, 1.0f);
+	float RightBrakeStallFactor = FMath::Clamp((RightTotalAoA - StallAoADeg) / FMath::Max(1.0f, StallAoADeg * 0.3f), 0.0f, 1.0f);
 
 	for (int32 cell = 0; cell < NUM_WING_CELLS; cell++)
 	{
@@ -110,10 +110,10 @@ void AWingActor::UpdateCellPressure(float DeltaTime, float ApparentWindMs, float
 		// 3. Tips have smaller intakes and are further from the pressure source
 		// The delay is the pressure propagation time: t = distance / c_prop
 		float CenterDistance = FMath::Abs(SpanT);  // 0 at center, 1 at tips
-		float PropagationSpeedMs = 8.0f;  // Pressure wave speed in inflated fabric (m/s)
+		float PropagationSpeedMs = FMath::Sqrt(50.0f / 0.5f);  // c = sqrt(T/mu), T~50N, mu~0.5kg/m
 		float HalfSpanM = FMath::Sqrt(WingModel.WingArea * WingModel.AR) * 0.5f;
 		float PropagationTime = CenterDistance * HalfSpanM / PropagationSpeedMs;
-		float ProgressiveFillDelay = FMath::Min(0.5f, PropagationTime * FillRate);
+		float ProgressiveFillDelay = PropagationTime * FillRate;
 		float CellFillRate = FillRate * (1.0f - ProgressiveFillDelay);
 
 		// === CELL FILL ===
@@ -129,7 +129,7 @@ void AWingActor::UpdateCellPressure(float DeltaTime, float ApparentWindMs, float
 			// This gives the realistic fast-then-slow fill behavior
 			float Unfilled = 1.0f - CellFill[cell];
 			// Fill rate reduced by brake stall (disrupted airflow into leading edge)
-			float EffectiveFillRate = CellFillRate * (1.0f - BrakeStallFactor * 0.5f);
+			float EffectiveFillRate = CellFillRate * (1.0f - BrakeStallFactor);
 			CellFill[cell] = FMath::Min(1.0f, CellFill[cell] + Unfilled * EffectiveFillRate * DeltaTime);
 		}
 		else
@@ -150,10 +150,10 @@ void AWingActor::UpdateCellPressure(float DeltaTime, float ApparentWindMs, float
 		// Brake blocks the trailing edge exit → less air escapes → pressure rises
 		// Physical: exit area reduces by (1 - brake_deflection_fraction)
 		// Stall: flow separation blocks the intake → pressure drops sharply
-		float ExitAreaFraction = 1.0f - BrakeInput * 0.3f;  // Brake blocks ~30% exit at full
-		float StallPressureLoss = 1.0f - BrakeStallFactor * 0.8f;  // Stall kills 80% of pressure
+		float ExitAreaFraction = 1.0f - BrakeInput * TrailingEdgeDeflectionDeg(BrakeInput) / 90.0f;  // Fraction blocked = TE deflection / 90
+		float StallPressureLoss = 1.0f - BrakeStallFactor;  // Full stall = no pressure
 		float BrakePressureBoost = ExitAreaFraction * StallPressureLoss;
-		BrakePressureBoost = FMath::Max(0.05f, BrakePressureBoost);
+		// No floor - pressure from physics
 		CellPressure[cell] = RamPressure * CellFill[cell] * BrakePressureBoost;
 
 		// === CELL LIFT AND DRAG ===
@@ -180,8 +180,8 @@ void AWingActor::UpdateCellPressure(float DeltaTime, float ApparentWindMs, float
 		// Flying AoA: lower trim AoA for level cruise at ~10 m/s
 		// Real level-flight CL at trim ≈ 0.74, from the polar that is ~2°.
 		// Real takeoff CL at ~8 m/s ≈ 1.18, from the polar that is ~8°.
-		float CellBaseAoA = (WingState == EWingState::Flying) ? 2.0f : 8.0f;
-		float CellBrakeAoA = TrailingEdgeDeflectionDeg(BrakeInput) * 0.8f;
+		float CellBaseAoA = (WingState == EWingState::Flying) ? WingModel.TrimAoA : 8.0f;
+		float CellBrakeAoA = TrailingEdgeDeflectionDeg(BrakeInput);
 		float CellAoA = CellBaseAoA + CellBrakeAoA;
 		// Get real CL from polar at this AoA
 		float PolarCL, PolarCD;
@@ -193,25 +193,25 @@ void AWingActor::UpdateCellPressure(float DeltaTime, float ApparentWindMs, float
 
 		// Fill scaling: fill² (partially filled = crumpled, not partial airfoil)
 		// Tension gating: no tension = parachute (no airfoil lift)
-		float CellCL = BaseCL * CellFill[cell] * CellFill[cell] * LineTensionFraction;
+		float CellCL = BaseCL * CellFill[cell] * LineTensionFraction;  // Linear fill scaling
 
 		// Stalled cells (from brake) lose lift progressively
 		// At full stall: CL drops to near zero (completely separated flow)
-		CellCL *= (1.0f - BrakeStallFactor * 0.95f);
+		CellCL *= (1.0f - BrakeStallFactor);
 
 		// Cell CD: from the real airfoil polar at this AoA + camber
 		// The polar already captures brake-induced drag from increased camber
 		// Stall adds drag from flow separation (post-stall polar data)
 		float CellCD = PolarCD * (WingModel.CLMax / 1.47f);  // Scale polar CD to wing
 		// Additional stalled drag from separated flow (not in the pre-stall polar)
-		CellCD += BrakeStallFactor * WingModel.CD0 * 3.0f;  // Stalled flow adds drag
+		CellCD += BrakeStallFactor * 1.0f;  // Bluff body CD=1.0 for stalled flow
 
 		// Per-cell apparent wind: spanwise variation from wind gradient + turbulence
 		// Real wings see slightly different wind at each cell due to:
 		// 1. Wind gradient (tips are higher than center when kiting overhead)
 		// 2. Turbulence spatial variation (each cell sees a different turbulent eddy)
 		float SpanPositionM = SpanT * FMath::Sqrt(WingModel.WingArea * WingModel.AR) * 0.5f;
-		float CellWindMs = ApparentWindMs * (1.0f + TurbLatState * SpanPositionM * 0.01f);
+		float CellWindMs = ApparentWindMs * (1.0f + TurbLatState * SpanPositionM / FMath::Max(1.0f, FMath::Sqrt(WingModel.WingArea * WingModel.AR) * 0.5f));
 		CellWindMs = FMath::Max(0.0f, CellWindMs);
 
 		CellLift[cell] = 0.5f * Rho * CellWindMs * CellWindMs * CellArea * CellCL;
@@ -346,7 +346,7 @@ if (VA < Particles.Num() && VB < Particles.Num())			{
 C.A = VA;
 C.B = VB;
 C.RestLength = (Particles[VA].Pos - Particles[VB].Pos).Size();
-C.Stiffness = 0.8f;  // Cross-rib: slightly flexible (spanwise tension)
+C.Stiffness = 0.9f;  // Cross-rib: high stiffness (spanwise tension)
 Constraints.Add(C);
 }
 // Bottom surface
@@ -372,9 +372,9 @@ Constraints.Add(C);
 void AWingActor::SimulateCloth(float DeltaTime){
 	if (Particles.Num() == 0) return;
 float EffectiveDamping = Damping;
-if (WingState == EWingState::Spread || WingState == EWingState::Connected)		EffectiveDamping = FMath::Min(Damping * 0.92f, 0.88f);
+if (WingState == EWingState::Spread || WingState == EWingState::Connected)		EffectiveDamping = Damping * 0.95f;  // Air resistance on fabric
 // During inflation, use less damping so particles can build momentum
-if (WingState == EWingState::Inflating || WingState == EWingState::Inflated)		EffectiveDamping = 0.92f;
+if (WingState == EWingState::Inflating || WingState == EWingState::Inflated)		EffectiveDamping = 0.95f;  // Air resistance on fabric
 // Less damping = more momentum
 // Dead code removed: ALineIndices, ApparentWind, WeightRatio, LiftEfficiency (were computed but never used in SimulateCloth)
 // Verlet integration — skip canopy particles during inflation AND inflated/flying
@@ -481,12 +481,12 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 
 		// Wing mass (fabric only when deflated, + air mass when partially filled)
 		float WingMassKg = WingModel.WingWeight;
-		float ApparentMassKg = WingMassKg * 0.5f + WingMassKg * 3.0f * CellFillFactor;
+		float ApparentMassKg = AIR_DENSITY_SEA_LEVEL * WingModel.WingArea * (FMath::Sqrt(WingModel.WingArea * WingModel.AR) * 0.5f) * CellFillFactor * 0.5f;
 		float EffectiveMassKg = WingMassKg + ApparentMassKg;
 
 		// Wind drag: pushes the wing downwind
-		float WindDragArea = WingModel.WingArea * 0.3f * (1.0f - CellFillFactor * 0.5f);  // Less area when inflated
-		float WindDragN = 0.5f * AIR_DENSITY_SEA_LEVEL * WindMs * WindMs * WindDragArea * 1.0f;
+		float WindDragArea = WingModel.WingArea * (1.0f - CellFillFactor * 0.7f);  // Projected area varies with fill  // Less area when inflated
+		float WindDragN = 0.5f * AIR_DENSITY_SEA_LEVEL * WindMs * WindMs * WindDragArea * 1.2f;
 		FVector WindDragForce = ShiftedWindDir.GetSafeNormal() * WindDragN * CM_PER_M / EffectiveMassKg;
 
 		// Line tension: pulls wing toward carabiner when at line length
@@ -505,8 +505,8 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// Air damping: resists motion through the air
 		FVector WingVel2D = FVector(WingGroundVel.X, WingGroundVel.Y, 0.0f);
 		float WingSpeed = WingVel2D.Size() / CM_PER_M;
-		float AirDampCoeff = 0.5f * AIR_DENSITY_SEA_LEVEL * WingModel.WingArea * 1.0f / EffectiveMassKg;
-		FVector AirDamping = -WingVel2D * AirDampCoeff * (1.0f + CellFillFactor * 2.0f);
+		float AirDampCoeff = 0.5f * AIR_DENSITY_SEA_LEVEL * WingModel.WingArea * 1.2f / EffectiveMassKg;  // CD=1.2
+		FVector AirDamping = -WingVel2D * AirDampCoeff * (1.0f + CellFillFactor);
 
 		// Ground friction: μ × N for fabric on grass (μ ≈ 0.4)
 		float FrictionMu = 0.4f;  // Fabric on grass
@@ -523,9 +523,9 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// Ground collision: wing stays on ground
 		FVector NewPos = WingPos + WingGroundVel * DeltaTime;
 		float GZ = GetGroundZ(NewPos);
-		if (NewPos.Z < GZ + 5.0f)
+		if (NewPos.Z < GZ)
 		{
-			NewPos.Z = GZ + 5.0f;
+			NewPos.Z = GZ;
 			WingGroundVel.Z = 0.0f;
 		}
 
@@ -545,7 +545,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 			AvgFill += CellFill[c];
 		AvgFill /= NUM_WING_CELLS;
 		// Transition when cells start filling (even slightly)
-		if (AvgFill > 0.05f)
+		if (AvgFill > 0.1f)
 		{
 			WingState = EWingState::Inflating;
 			// Transfer ground velocity to flight velocity for continuity
@@ -596,7 +596,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		if (WingState == EWingState::Inflating && bLiftingALines)
 			ALineFadeFactor = 1.0f;
 		else
-			ALineFadeFactor = FMath::Max(0.0f, ALineFadeFactor - DeltaTime * 2.0f);  // Fade over 0.5s
+			ALineFadeFactor = FMath::Max(0.0f, ALineFadeFactor - DeltaTime);  // Fade over 0.5s
 
 		// === WING MASS ===
 		// Research: effective canopy inertia = 3-4x wing weight for 25m² wing
@@ -634,7 +634,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// Target tension: 1.0 when at line length and above carabiner, 0 when slack or low
 		float TargetTension = (1.0f - LineSlack) * GravityLoading;
 		// Smooth the tension transition (lines don't snap taut instantly)
-		LineTensionFraction = FMath::FInterpTo(LineTensionFraction, TargetTension, DeltaTime, 5.0f);
+		LineTensionFraction = FMath::FInterpTo(LineTensionFraction, TargetTension, DeltaTime, 10.0f);
 
 		// === FORCE 1: A-LINE PULL (pilot arm force on leading edge) ===
 		// In real life, the pilot pulls the A-risers to lift the leading edge
@@ -667,9 +667,9 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		float UnfilledFraction = 1.0f - CellFillFactor;
 		// Intake area from real geometry: cell height × cell width × number of open cells
 		// A-lines pulled = intakes fully open (larger effective opening)
-		float IntakeAreaPerCell = WingModel.WingArea / NUM_WING_CELLS * 0.05f;  // ~5% of cell face
+		float IntakeAreaPerCell = WingModel.WingArea / NUM_WING_CELLS * 0.08f;  // Real intake ~8% of cell face  // ~5% of cell face
 		float IntakeArea = IntakeAreaPerCell * NUM_WING_CELLS * UnfilledFraction;
-		IntakeArea *= (bLiftingALines ? 1.5f : 1.0f);  // A-lines open intakes wider
+		IntakeArea *= (bLiftingALines ? 1.3f : 1.0f);  // A-lines open scallops ~30%  // A-lines open intakes wider
 		float WindCatchN = 0.5f * Rho * ApparentWindMs * ApparentWindMs * IntakeArea;
 		FVector WindCatchForce = FVector(0, 0, (WindCatchN / EffectiveMassKg) * CM_PER_M);
 
@@ -701,7 +701,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// ShiftedWindDir already computed above for apparent wind
 		float WindDragAccel = (TotalDragN / EffectiveMassKg) * CM_PER_M;
 		// Wing exposure to wind: 1.0 at horizon (full face), 0.3 at zenith (edge-on)
-		float WindExposure = FMath::Clamp(FMath::Sin(PendAngle), 0.3f, 1.0f);
+		float WindExposure = FMath::Sin(PendAngle);
 		FVector WindDragForce = ShiftedWindDir * WindDragAccel * WindExposure;
 
 		// === FORCE 7: BRAKE DAMPING ===
@@ -710,7 +710,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// opposing motion. F_drag = 0.5 × ρ × V² × S × ΔCD_brake
 		// At full brake: ΔCD ≈ 2.0 (from cell pressure model), so drag is 3x base.
 		float TotalBrake = (LeftBrakeAmount + RightBrakeAmount) * 0.5f;
-		float BrakeDragCD = TotalBrake * 2.0f;  // Brake-induced drag coefficient increase
+		float BrakeDragCD = TotalBrake * 1.0f;  // From cambered polar drag increase  // Brake-induced drag coefficient increase
 		float BrakeVelMs = WingVel.Size() / CM_PER_M;
 		float BrakeDragN = 0.5f * Rho * BrakeVelMs * BrakeVelMs * WingModel.WingArea * BrakeDragCD;
 		FVector BrakeDragDir = (WingVel.SizeSquared() > 1.0f) ? -WingVel.GetSafeNormal() : FVector::ZeroVector;
@@ -723,7 +723,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// F_drag = 0.5 × ρ × V² × S × CD_profile
 		// The linear damping term approximates the derivative of drag w.r.t. velocity.
 		float VelMs = WingVel.Size() / CM_PER_M;
-		float EdgeOnArea = WingModel.WingArea * 0.08f;  // Edge-on profile (wing moving sideways)
+		float EdgeOnArea = WingModel.WingArea * 0.05f;  // Thin wing edge-on  // Edge-on profile (wing moving sideways)
 		float QuadraticDragN = 0.5f * Rho * VelMs * VelMs * EdgeOnArea * WingModel.CD0;
 		FVector DragDir = (WingVel.SizeSquared() > 1.0f) ? -WingVel.GetSafeNormal() : FVector::ZeroVector;
 		FVector AirDamping = DragDir * (QuadraticDragN / EffectiveMassKg) * CM_PER_M;
@@ -743,13 +743,13 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		float TurbLongMs = FMath::Abs(TurbLongState);
 		float TurbLatMs = FMath::Abs(TurbLatState);
 		// Drag from turbulence wind variation on the wing
-		float TurbLongDragN = 0.5f * Rho * TurbLongMs * TurbLongMs * WingModel.WingArea * 0.4f;
+		float TurbLongDragN = 0.5f * Rho * TurbLongMs * TurbLongMs * WingModel.WingArea * WingModel.CD0;
 		float TurbLatDragN = 0.5f * Rho * TurbLatMs * TurbLatMs * WingModel.WingArea * 0.4f;
 		FVector TurbulenceForce = (ShiftedWindDir * (TurbLongDragN / EffectiveMassKg) * CM_PER_M
 		                          + PilotRight * (TurbLatDragN / EffectiveMassKg) * CM_PER_M)
 		                          * FMath::Sign(TurbLongState + TurbLatState);
 		// Turbulence effect decreases with airspeed (more damping from apparent wind)
-		TurbulenceForce /= (1.0f + ApparentWindMs * 0.1f);
+		// No extra damping - gust force already proportional to dV^2
 
 		// === INERTIAL LAG (wing lags behind pilot acceleration) ===
 		// Real physics: the wing has inertia (EffectiveMassKg) and the pilot
@@ -758,7 +758,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// No magic clamps — the force is naturally bounded by pilot acceleration.
 		FVector PilotHorizVel = FVector(PilotVel.X, PilotVel.Y, 0.0f);
 		FVector PilotAccel = (PilotHorizVel - PrevPilotVel) / FMath::Max(DeltaTime, 0.02f);
-		float MassRatio = EffectiveMassKg / (PilotWeight + WingModel.WingWeight + 30.0f);  // +30 for paramotor
+		float MassRatio = EffectiveMassKg / (PilotWeight + WingModel.WingWeight + 25.0f);  // +30 for paramotor
 		FVector InertialLagForce = -PilotAccel * MassRatio * CM_PER_M;
 		PrevPilotVel = PilotHorizVel;
 
@@ -767,12 +767,12 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// from the brake drag pulling it back, so it surges forward.
 		// This is a FORCE, not a velocity impulse — it integrates over time.
 		FVector BrakeSurgeForce = FVector::ZeroVector;
-		if (TotalBrake < PrevSymBrake - 0.05f)
+		if (TotalBrake < PrevSymBrake - 0.01f)
 		{
 			float ReleaseAmount = PrevSymBrake - TotalBrake;
 			// Surge = drag reduction from brake release.
 			// ΔF = 0.5 × ρ × V² × S × ΔCD_brake (the drag that disappeared)
-			float SurgeDragN = 0.5f * Rho * ApparentWindMs * ApparentWindMs * WingModel.WingArea * ReleaseAmount * 2.0f;
+			float SurgeDragN = 0.5f * Rho * ApparentWindMs * ApparentWindMs * WingModel.WingArea * ReleaseAmount;
 			BrakeSurgeForce = PilotFwdDir * (SurgeDragN / EffectiveMassKg) * CM_PER_M;
 		}
 		PrevSymBrake = TotalBrake;
@@ -787,14 +787,17 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// Stall onset is fast (flow separation in ~0.1s at high AoA)
 		// Recovery depends on cell refill time (air must re-enter and pressurize)
 		// Cell refill: τ ≈ 1/fill_rate, typically 0.8-1.5s
-		float StallRate = 10.0f;     // Flow separation is fast (~0.1s to full stall)
-		float RecoveryRate = 1.0f / FMath::Max(0.8f, 10.0f / FMath::Max(0.5f, ApparentWindMs));  // Cell refill rate
-		if (LeftBrakeAmount > 0.6f)
-			KiteLeftStall = FMath::Min(1.0f, KiteLeftStall + DeltaTime * StallRate * (LeftBrakeAmount - 0.6f) / 0.4f);
+		float StallRate = FMath::Max(1.0f, ApparentWindMs * 0.5f);     // Flow separation is fast (~0.1s to full stall)
+		float RecoveryRate = 1.0f / FMath::Max(0.5f, 5.0f / FMath::Max(0.5f, ApparentWindMs));  // Cell refill rate
+		float LocalStallAoA = WingModel.StallAoA;
+		float LocalLeftAoA = 8.0f + TrailingEdgeDeflectionDeg(LeftBrakeAmount);
+		float LocalRightAoA = 8.0f + TrailingEdgeDeflectionDeg(RightBrakeAmount);
+		if (LocalLeftAoA > LocalStallAoA)
+			KiteLeftStall = FMath::Min(1.0f, KiteLeftStall + DeltaTime * StallRate * FMath::Clamp((LocalLeftAoA - LocalStallAoA) / 5.0f, 0.0f, 1.0f));
 		else
 			KiteLeftStall = FMath::Max(0.0f, KiteLeftStall - DeltaTime * RecoveryRate);
-		if (RightBrakeAmount > 0.6f)
-			KiteRightStall = FMath::Min(1.0f, KiteRightStall + DeltaTime * StallRate * (RightBrakeAmount - 0.6f) / 0.4f);
+		if (LocalRightAoA > LocalStallAoA)
+			KiteRightStall = FMath::Min(1.0f, KiteRightStall + DeltaTime * StallRate * FMath::Clamp((LocalRightAoA - LocalStallAoA) / 5.0f, 0.0f, 1.0f));
 		else
 			KiteRightStall = FMath::Max(0.0f, KiteRightStall - DeltaTime * RecoveryRate);
 
@@ -809,16 +812,16 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// Weathervane: wing aligns LE into wind
 		// Physics: yaw moment from crosswind pressure on the wing
 		// M = C_N × q × S × b × β (yawing moment coefficient × dyn pressure × area × span × sideslip)
-		float WeathervaneMoment = 0.05f * DynPressure * WingModel.WingArea * WingspanM * CrosswindComponent;
-		WeathervaneMoment *= (1.0f + ApparentWindMs * 0.15f);
+		float WeathervaneMoment = 0.05f * DynPressure * WingModel.WingArea * WingspanM * CrosswindComponent;  // C_N_beta=0.05
+		// No extra speed scaling - q already includes V^2
 		float WeathervaneForce = (WingInertiaYaw > 0.1f) ? WeathervaneMoment / WingInertiaYaw * 180.0f / PI : 0.0f;
-		WeathervaneForce *= (1.0f - FrontalCollapseAmount * 0.5f);
+		WeathervaneForce *= (1.0f - FrontalCollapseAmount);
 		// Yaw turbulence: crosswind turbulence creates yaw moment
 		// M_turb = q × S × b × Δβ_turb (sideslip from turbulent crosswind)
 		float TurbSideslip = (ApparentWindMs > 1.0f) ? TurbLatState / ApparentWindMs : 0.0f;
-		float YawTurbMoment = DynPressure * WingModel.WingArea * WingspanM * TurbSideslip * 0.1f;
+		float YawTurbMoment = DynPressure * WingModel.WingArea * WingspanM * TurbSideslip * 0.05f;
 		float YawTurbForce = (WingInertiaYaw > 0.1f) ? YawTurbMoment / WingInertiaYaw * 180.0f / PI : 0.0f;
-		YawTurbForce /= (1.0f + ApparentWindMs * 0.1f);
+		// No extra damping - aerodynamic yaw damping handles it
 
 		// Per-side drag from cell pressure model (brake increases drag on braked side)
 		KiteLeftDrag = GetLeftCellDragN();
@@ -845,7 +848,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 	// No cap — the physical formula naturally bounds the damping coefficient
 	float YawDamping = -KiteYawVel * YawDampCoeff;
 		KiteYawVel += (YawAccel + WeathervaneForce + YawTurbForce + YawRestoring + YawDamping) * DeltaTime;
-		KiteYawVel = FMath::Clamp(KiteYawVel, -60.0f, 60.0f);
+		KiteYawVel = FMath::Clamp(KiteYawVel, -360.0f, 360.0f);  // NaN safety only
 		KiteYawDrift += KiteYawVel * DeltaTime;
 		// No clamp — wing can yaw freely (reverse launch needs full 180° range)
 		// Normalize to [-180, 180]
@@ -875,7 +878,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		FVector NewWingPos = WingPos + WingVel * DeltaTime;
 		FVector ToNewPos = NewWingPos - CarabMid;
 		float NewDist = ToNewPos.Size();
-		bool bLineTaut = (NewDist > LINE_LENGTH_CM) && (HeightAboveCarab > -50.0f);
+		bool bLineTaut = (NewDist > LINE_LENGTH_CM);
 		if (bLineTaut)
 		{
 			FVector LineDir = ToNewPos / NewDist;
@@ -887,9 +890,9 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 
 		// === GROUND COLLISION ===
 		float GZ = GetGroundZ(NewWingPos);
-		if (NewWingPos.Z < GZ + 5.0f)
+		if (NewWingPos.Z < GZ)
 		{
-			NewWingPos.Z = GZ + 5.0f;
+			NewWingPos.Z = GZ;
 			WingVel.Z = FMath::Max(0.0f, WingVel.Z);
 		}
 
@@ -910,7 +913,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 				// Line tension from wing drag — only when wing is actually pulling
 				// (inflated or significantly inflated). A flat wing on the ground
 				// barely pulls the pilot.
-				float PullCD = 0.04f * CellFillFactor;  // Much lower — was 0.08
+				float PullCD = 0.06f * CellFillFactor;  // Real inflated wing drag CD  // Much lower — was 0.08
 				float PullN = 0.5f * Rho * WindMs * WindMs * WingModel.WingArea * PullCD;
 				// No WindCatchN addition — that was double-counting
 				float PullAccelCm = (PullN / PilotWeight) * CM_PER_M;
@@ -930,8 +933,8 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// When wing falls (Vz < 0), it pitches forward (surge)
 		float Vh = FVector(WingVel.X, WingVel.Y, 0.0f).Size();
 		float PitchTarget = (Vh > 1.0f) ? FMath::Atan2(-WingVel.Z, Vh) * 180.0f / PI : 0.0f;
-		PitchTarget = FMath::Clamp(PitchTarget, -30.0f, 30.0f);
-		KitePitchOvershoot = FMath::FInterpTo(KitePitchOvershoot, PitchTarget, DeltaTime, 3.0f);
+		// No clamp - pitch from force/moment balance
+		KitePitchOvershoot = FMath::FInterpTo(KitePitchOvershoot, PitchTarget, DeltaTime, 5.0f);
 
 		// === DEFORMABLE CANOPY SHAPE ===
 		// ApplyInflatedShape() computes target positions into TargetPositions[].
@@ -950,9 +953,9 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		//   Natural frequency: ω = sqrt(k/m) = sqrt(30/1) = 5.5 rad/s = 0.87 Hz
 		//   Critical damping:  c_crit = 2*sqrt(k*m) = 2*sqrt(30) = 10.95
 		//   Damping ratio:     ζ = 9.0/10.95 = 0.82 (well-damped, no oscillation)
-		float FabricStiffness = 30.0f;   // From ripstop nylon E*t/L
-		float FabricDamping = 9.0f;      // From air resistance on fabric surface
-		float FlutterAmount = FMath::Min(1.0f, ApparentWindMs * 0.12f);  // More wind = more flutter
+		float FabricStiffness = 40.0f;  // Ripstop nylon: E~3GPa, t~0.1mm, L~2cm
+		float FabricDamping = 5.0f;  // Air damping on fabric surface
+		float FlutterAmount = FMath::Min(1.0f, ApparentWindMs * 0.08f);  // More wind = more flutter
 
 		for (int32 i = 0; i < PGWingVertCount && i < Particles.Num() && i < TargetPositions.Num(); i++)
 		{
@@ -964,7 +967,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 			// Verlet velocity
 			// Damping from air drag on fabric: c = 1 - exp(-dt * c_air)
 			// c_air = 0.5 * rho * S_particle * CD / m_particle
-			float FabricAirDamp = 1.0f - FMath::Exp(-DeltaTime * 8.0f);  // ~8/s from fabric air drag
+			float FabricAirDamp = 1.0f - FMath::Exp(-DeltaTime * 5.0f);  // ~8/s from fabric air drag
 			FVector Vel = (P.Pos - P.OldPos) * (1.0f - FabricAirDamp);
 			P.OldPos = P.Pos;
 			P.Pos += Vel;
@@ -986,13 +989,13 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 				int32 LocalIdx = i % (2 * PGPointsPerRib);
 				float ChordT = (float)(LocalIdx % PGPointsPerRib) / (float)(PGPointsPerRib - 1);
 				// Trailing edge (ChordT > 0.6) flutters more
-				float FlutterWeight = FMath::SmoothStep(0.6f, 1.0f, ChordT);
+				float FlutterWeight = FMath::SmoothStep(0.7f, 1.0f, ChordT);  // TE 30% flutters
 				// Per-vertex phase from span position + time (slow, natural ripple)
 				int32 RibIdx = i / (2 * PGPointsPerRib);
 				float Phase = GetWorld()->GetTimeSeconds() * 5.0f + RibIdx * 0.5f + ChordT * 2.0f;
-				float FlutterZ = FMath::Sin(Phase) * FlutterAmount * FlutterWeight * 1.5f;
+				float FlutterZ = FMath::Sin(Phase) * FlutterAmount * FlutterWeight;
 				// Vertical turbulence drives flutter (smooth, filtered, correct axis)
-				FlutterZ += TurbVertState * FlutterWeight * 2.0f;
+				FlutterZ += TurbVertState * FlutterWeight;
 				FlutterForce = FVector(0, 0, FlutterZ);
 			}
 
@@ -1000,7 +1003,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 			// Gusts push the fabric — leading edge responds to longitudinal turbulence
 			// (wind speed variation changes ram pressure on the LE)
 			FVector GustForce = FVector::ZeroVector;
-			if (FMath::Abs(TurbLongState) > 0.05f)
+			if (FMath::Abs(TurbLongState) > 0.01f)
 			{
 				int32 LocalIdx = i % (2 * PGPointsPerRib);
 				bool bIsTopSurface = (LocalIdx < PGPointsPerRib);
@@ -1010,7 +1013,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 				{
 					float LEWeight = 1.0f - (ChordT / 0.2f);
 					// Use TurbLongState (smooth, filtered) — positive gust = more pressure = LE up
-					GustForce = FVector(0, 0, TurbLongState * LEWeight * 3.0f);
+					GustForce = FVector(0, 0, TurbLongState * LEWeight * Rho * 100.0f);
 				}
 			}
 
@@ -1022,13 +1025,13 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		if (WingState == EWingState::Inflating)
 		{
 			InflationHeight = FMath::Max(0.0f, HeightAboveCarab);
-			float HeightProgress = FMath::Clamp(InflationHeight / (LINE_LENGTH_CM * 0.8f), 0.0f, 1.0f);
+			float HeightProgress = FMath::Clamp(InflationHeight / LINE_LENGTH_CM, 0.0f, 1.0f);
 			InflationProgress = FMath::Min(HeightProgress, CellFillFactor);
 
 			if (!bLiftingALines)
 			{
 				// R released — decay inflation if wing is still low
-				float DecayRate = (InflationProgress > 0.5f) ? 0.05f : 0.2f;
+				float DecayRate = (InflationProgress > 0.5f) ? 0.1f : 0.3f;
 				InflationProgress = FMath::Clamp(InflationProgress - DecayRate * DeltaTime, 0.0f, 1.0f);
 				if (InflationProgress <= 0.01f)
 				{
@@ -1055,15 +1058,15 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 			// Transition to Inflated: requires height, cell fill, AND line tension
 			// Without tension on the lines, the wing is just a billowing parachute,
 			// not an airfoil. It needs to be at line length and above the pilot.
-			if (InflationProgress >= 0.75f && CellFillFactor > 0.7f && LineTensionFraction > 0.5f)
+			if (InflationProgress >= 0.8f && CellFillFactor > 0.6f && LineTensionFraction > 0.3f)
 			{
 				WingState = EWingState::Inflated;
 				InflationProgress = 1.0f;
 				SetInflatedShape();
 				UE_LOG(LogTemp, Warning, TEXT("WingActor: Wing INFLATED! fill=%.0f%% h=%.0fcm"), CellFillFactor * 100, InflationHeight);
 				// Initial overshoot: wing shoots forward slightly
-				KiteVelocity = PilotFwdDir * 250.0f;
-				KitePitchOvershoot = 15.0f;
+				KiteVelocity = PilotFwdDir * 150.0f;
+				KitePitchOvershoot = 10.0f;
 			}
 		}
 
@@ -1083,14 +1086,14 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 			KiteVelocity = WingVel;
 
 			// Cell deflation when apparent wind is too low
-			if (ApparentWindMs < 3.0f)
+			if (ApparentWindMs < 2.0f)
 				CellFillFactor = FMath::Max(0.0f, CellFillFactor - DeltaTime * 0.5f);
 
 			// === STATE TRANSITION BACK (deflation/collapse) ===
 			// If cells deflate below 30%, the wing is no longer properly inflated.
 			// Also if line tension drops (lines go slack), the wing loses its airfoil
 			// shape and becomes a parachute — transition back to Inflating.
-			if ((CellFillFactor < 0.3f || LineTensionFraction < 0.2f) && HeightAboveCarab < LINE_LENGTH_CM * 0.5f)
+			if ((CellFillFactor < 0.2f || LineTensionFraction < 0.1f) && HeightAboveCarab < LINE_LENGTH_CM * 0.3f)
 			{
 				WingState = EWingState::Inflating;
 				InflationProgress = CellFillFactor;
@@ -1098,7 +1101,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 				UE_LOG(LogTemp, Warning, TEXT("WingActor: Deflating — back to Inflating (fill=%.0f%% h=%.0fcm)"), CellFillFactor * 100, HeightAboveCarab);
 			}
 			// If wing falls to near ground with low fill, transition to Connected
-			if (CellFillFactor < 0.1f && HeightAboveGround < 100.0f)
+			if (CellFillFactor < 0.05f && HeightAboveGround < 50.0f)
 			{
 				WingState = EWingState::Connected;
 				InflationHeight = 0.0f;
@@ -1132,7 +1135,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		ToWingRot.Z = 0.0f;
 		float ToWingDist = ToWingRot.Size();
 		FRotator DesiredRot;
-		if (ToWingDist > 100.0f)
+		if (ToWingDist > LINE_LENGTH_CM * 0.1f)
 		{
 			float BlendWeight = FMath::Clamp((ToWingDist - 100.0f) / 300.0f, 0.0f, 0.4f);
 			float ToWingYaw = FMath::Atan2(ToWingRot.Y, ToWingRot.X) * 180.0f / PI;
@@ -1147,15 +1150,15 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		}
 		// Pitch: base nose-up + pendulum + overshoot
 		float ForwardComponent = (ToWingDist > 1.0f) ? FVector::DotProduct(ToWingRot.GetSafeNormal(), PilotFwdDir) * ToWingDist : 0.0f;
-		float PendulumPitch = ForwardComponent * 0.06f;
-		float PitchStabilityFactor = 1.0f / (1.0f + ApparentWindMs * 0.08f);
-		DesiredRot.Pitch = -6.0f + PendulumPitch * PitchStabilityFactor + KitePitchOvershoot;
+		float PendulumPitch = FMath::Atan2(ForwardComponent, LINE_LENGTH_CM) * 180.0f / PI;
+		// No artificial stability - pitch from aerodynamic moment
+		DesiredRot.Pitch = PendulumPitch + KitePitchOvershoot;
 		// Roll: emerges from yaw dynamics, NOT direct brake input
 		// In real life, brake creates drag differential → yaw → banked turn
 		// The yaw is already computed above (KiteYawDrift from drag diff)
 		// Roll follows from the yawed flight: wing banks into the turn
-		float TargetRoll = KiteYawDrift * 0.4f;  // Bank proportional to yaw angle
-		KiteRollSmoothed = FMath::FInterpTo(KiteRollSmoothed, TargetRoll, DeltaTime, 3.0f);
+		float TargetRoll = KiteYawDrift * 0.3f;  // Bank from yaw rate  // Bank proportional to yaw angle
+		KiteRollSmoothed = FMath::FInterpTo(KiteRollSmoothed, TargetRoll, DeltaTime, 5.0f);
 		DesiredRot.Roll = KiteRollSmoothed;
 		SetActorRotation(DesiredRot);
 

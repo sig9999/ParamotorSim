@@ -157,6 +157,9 @@ struct FWingModel
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wing")
 	float StallAoA = 15.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wing")
+	float TrimAoA = 2.0f;             // Trim angle of attack (degrees)
 };
 
 // ============================================================

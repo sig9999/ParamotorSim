@@ -227,11 +227,11 @@ void AParamotorActor::Tick(float DeltaTime)
 		StarterTimer += DeltaTime;
 
 		// Engine catches ONLY if throttle is being given
-		if (Throttle > 0.05f)
+		if (Throttle > 0.02f)  // Min throttle for combustion
 		{
 			// Engine catches after cranking for at least 1.5 seconds with throttle
 			// (you need to hear the starter cranking before it catches)
-			if (StarterTimer >= 1.5f)
+			if (StarterTimer >= 1.0f)  // Cranking time before catch
 			{
 				EngineState = EEngineState::Running;
 				StarterAudio->Stop();
@@ -255,7 +255,7 @@ void AParamotorActor::Tick(float DeltaTime)
 		}
 
 		// If cranking too long without throttle, give up after 5 seconds
-		if (StarterTimer >= 5.0f)
+		if (StarterTimer >= 8.0f)  // Starter thermal limit
 		{
 			StopCranking();
 			UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Starter gave up (no throttle)"));
@@ -294,8 +294,8 @@ void AParamotorActor::Tick(float DeltaTime)
 		// Engine torque: produces torque from throttle combustion
 		// At idle: just enough to overcome internal friction
 		// At full throttle: peak torque at peak RPM
-		float EffectiveThrottle = FMath::Max(0.0f, (Throttle - 0.05f) / 0.95f);
-		float EnginePowerW = 18500.0f * EffectiveThrottle;
+		float EffectiveThrottle = FMath::Max(0.0f, (Throttle - 0.1f) / 0.9f);  // Consistent with thrust API
+		float EnginePowerW = 18500.0f * EffectiveThrottle * FMath::Max(0.0f, EngineRPM / REDLINE_RPM);  // Power scales with RPM
 		float EngineTorque = (EngineOmega > 10.0f) ? EnginePowerW / EngineOmega : 0.0f;
 
 		// Idle torque: engine produces minimum torque from idle fuel flow
@@ -332,14 +332,14 @@ void AParamotorActor::Tick(float DeltaTime)
 		// m≈2kg, cp≈500 J/kg·K, h≈50 W/m²·K, A≈0.05 m² → τ ≈ 400s
 		// FInterpTo rate = 1/τ ≈ 0.0025/s. But we want faster gameplay response,
 		// so use the actual cooling rate (h×A/(m×cp)) which gives ~0.0025/s
-		EngineTemp = FMath::FInterpTo(EngineTemp, TargetTemp, DeltaTime, 0.05f);  // τ ≈ 20s (gameplay compromise)
+		EngineTemp = FMath::FInterpTo(EngineTemp, TargetTemp, DeltaTime, 0.01f);  // Physical: tau~100s (m*cp/(h*A))
 
 		// === EGT (exhaust gas temperature) ===
 		// EGT is higher than CHT and responds faster (smaller thermal mass)
 		// Idle ~450C, full throttle ~650C
 		// EGT thermal mass: exhaust gas has very low mass, responds in ~1-2s
 		float TargetEGT = 450.0f + (EngineRPM / REDLINE_RPM) * 200.0f;
-		EGT = FMath::FInterpTo(EGT, TargetEGT, DeltaTime, 1.0f);  // τ ≈ 1s (fast response)
+		EGT = FMath::FInterpTo(EGT, TargetEGT, DeltaTime, 2.0f);  // Physical: tau~0.5s (low thermal mass)
 
 		// === Fuel consumption (from BSFC × power) ===
 		// Real Moster 185: BSFC ≈ 0.4 kg/kW·h (typical 2-stroke)
@@ -418,7 +418,7 @@ void AParamotorActor::Tick(float DeltaTime)
 		// Prop slows down and stops when not running
 		if (EngineRPM > 0.0f)
 		{
-			EngineRPM = FMath::FInterpTo(EngineRPM, 0.0f, DeltaTime, 2.0f);
+			EngineRPM = FMath::FInterpTo(EngineRPM, 0.0f, DeltaTime, 0.5f);  // Windmilling + bearing friction
 			float PropOmega = GetPropRPM() * 2.0f * PI / 60.0f;
 			PropRotation += PropOmega * DeltaTime;
 
@@ -439,7 +439,7 @@ void AParamotorActor::Tick(float DeltaTime)
 		// Engine cools down when off
 		if (EngineTemp > 20.0f)
 		{
-			EngineTemp = FMath::FInterpTo(EngineTemp, 20.0f, DeltaTime, 0.1f);
+			EngineTemp = FMath::FInterpTo(EngineTemp, 20.0f, DeltaTime, 0.01f);  // Same physical cooling rate
 		}
 	}
 }
@@ -582,7 +582,7 @@ float AParamotorActor::GetThrustForceN(float AirspeedMs) const
 	if (EngineState != EEngineState::Running) return 0.0f;
 
 	// Effective throttle (dead zone below 10%)
-	float EffectiveThrottle = FMath::Max(0.0f, (Throttle - 0.1f) / 0.9f);
+	float EffectiveThrottle = FMath::Max(0.0f, (Throttle - 0.1f) / 0.9f);  // Consistent dead zone
 
 	// === BLADE ELEMENT THEORY ===
 	// Real propeller thrust computed by integrating aerodynamic forces
@@ -606,7 +606,7 @@ float AParamotorActor::GetThrustForceN(float AirspeedMs) const
 	//   Pitch angle varies from ~30° at root to ~15° at tip (twist)
 
 	float PropRPM = GetPropRPM();
-	if (PropRPM < 100.0f) return 0.0f;  // Prop barely spinning
+	// No RPM cutoff - blade element produces small forces naturally at low RPM
 
 	// Altitude-dependent air density (ISA model)
 	float AltitudeM = 0.0f;
@@ -623,7 +623,7 @@ float AParamotorActor::GetThrustForceN(float AirspeedMs) const
 	// Throttle affects effective pitch (variable pitch approximation)
 	// At low throttle, the engine can't sustain full RPM, so effective pitch is lower
 	// This is modeled by scaling the RPM, not the pitch (fixed-pitch prop)
-	float RPMscale = FMath::Max(0.0f, EngineRPM / REDLINE_RPM);
+	// RPMscale removed - RPM already in blade element integration
 
 	// Integrate thrust along the blade
 	float TotalThrustN = 0.0f;
@@ -661,13 +661,13 @@ float AParamotorActor::GetThrustForceN(float AirspeedMs) const
 		if (FMath::Abs(AlphaDeg) < 15.0f)
 		{
 			CL = 2.0f * PI * Alpha;  // Thin airfoil theory
-			CD = 0.02f + 0.05f * Alpha * Alpha;
+			CD = 0.015f + 0.04f * Alpha * Alpha;  // Clark-Y propeller airfoil
 		}
 		else
 		{
 			// Stalled: CL drops, CD rises
-			CL = 0.3f * FMath::Sign(AlphaDeg);
-			CD = 0.5f + 0.1f * (FMath::Abs(AlphaDeg) - 15.0f) * PI / 180.0f;
+			CL = 0.5f * FMath::Sign(AlphaDeg);  // Post-stall flat plate CL
+			CD = 1.0f + 0.3f * (FMath::Abs(AlphaDeg) - 15.0f) * PI / 180.0f;  // Flat plate post-stall
 		}
 
 		// Forces on this blade element
@@ -713,7 +713,7 @@ float AParamotorActor::GetPropTorqueNM(float AirspeedMs) const
 	if (EngineState != EEngineState::Running) return 0.0f;
 
 	float PropRPM = GetPropRPM();
-	if (PropRPM < 100.0f) return 0.0f;
+	// No RPM cutoff - blade element produces small forces naturally
 
 	float AltitudeM = 0.0f;
 	AActor* OwnerActor = GetOwner();
@@ -785,5 +785,6 @@ float AParamotorActor::GetEnginePowerW() const
 	float EffectiveThrottle = FMath::Max(0.0f, (Throttle - 0.1f) / 0.9f);
 	float RPMFactor = FMath::Max(0.0f, EngineRPM / REDLINE_RPM);
 	const float PeakPowerW = 18500.0f;  // 18.5 kW
+	// Real power curve: P = P_peak * throttle * (RPM/redline) for 2-stroke
 	return PeakPowerW * EffectiveThrottle * RPMFactor;
 }

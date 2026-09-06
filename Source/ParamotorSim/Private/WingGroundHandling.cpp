@@ -60,7 +60,7 @@ void AWingActor::UpdateInflation(float DeltaTime){
 // Gusts vary the wind speed ±WindGusts m/s with multi-frequency oscillation.
 // Turbulence adds random perturbations. Direction shifts ±15°.
 
-float GustAmplitude = 2.0f;
+float GustAmplitude = 0.0f;
 if (UParamotorGameInstance* GI = GetWorld()->GetGameInstance<UParamotorGameInstance>())
 		GustAmplitude = GI->WindGusts;
 // Use unified wind update helper
@@ -95,7 +95,7 @@ if (Char && !Char->GetCharacterMovement()->IsFlying())			{
 				// === AIRSPEED CALCULATION ===
 FVector CharVel = Char->GetVelocity();
 if (!FMath::IsFinite(CharVel.X)) CharVel = FVector::ZeroVector;
-if (CharVel.Size() > 2000.0f) CharVel = CharVel.GetSafeNormal() * 2000.0f;
+// No velocity cap - leg power model bounds speed
 FVector HorizVel = FVector(CharVel.X, CharVel.Y, 0.0f);
 FVector HorizWind = FVector(Wind.X, Wind.Y, 0.0f);
 FVector GroundApparentWind = HorizWind - HorizVel;
@@ -143,12 +143,12 @@ float LiftN = GetTotalCellLiftN();
 FVector CharLoc = Char->GetActorLocation();
 float GZ = GetGroundZ(CharLoc);
 float HeightAboveGround = FMath::Max(0.0f, (CharLoc.Z - GZ) / 100.0f);  // meters
-float WingspanM = FMath::Sqrt(WingModel.WingArea * WingModel.WingArea * WingModel.AR) / WingModel.WingArea;
+float WingspanM = FMath::Sqrt(WingModel.WingArea * WingModel.AR);  // b = sqrt(S * AR)
 // Ground effect: reduces induced drag near ground (less downwash)
 // This makes the wing more efficient near the ground (higher L/D).
 // It does NOT increase lift — CL stays the same, CD_induced drops.
 float GroundEffectFactor = 1.0f - FMath::Exp(-HeightAboveGround / (WingspanM * 0.5f));
-GroundEffectFactor = FMath::Clamp(GroundEffectFactor, 0.15f, 1.0f);
+// No clamp - physical formula correct
 // No lift boost — ground effect is a drag reduction, not a lift increase
 // The reduced drag means more airspeed is retained, which indirectly helps
 // Weight — total suspended weight (pilot + paramotor + fuel + wing + lines)
@@ -178,10 +178,10 @@ TakeoffSkipZ = CharLoc.Z - GZ;
 // When lift > 70% of weight, allow the pilot to leave the ground briefly
 // (MOVE_Falling so the movement component doesn't kill Z velocity)
 
-if (WeightSupport > 0.7f && Char->GetCharacterMovement()->IsMovingOnGround())				{
+if (NetVerticalForceN > 0.0f && Char->GetCharacterMovement()->IsMovingOnGround())				{
 					// Only switch to falling if there's upward velocity from a gust
 FVector CurVel = Char->GetCharacterMovement()->Velocity;
-if (CurVel.Z > 10.0f || WeightSupport > 0.95f)					{
+if (CurVel.Z > 0.0f || WeightSupport > 1.0f)					{
 						Char->GetCharacterMovement()->SetMovementMode(MOVE_Falling);
 }
 }
@@ -204,14 +204,14 @@ if (bWasOnGround && TakeoffSkipZ < PrevSkipZ - 1.0f)				{
 		// P_leg = F_leg × v → v_max = P_leg / F_resistance
 		// Average pilot leg power: ~350W sprint, ~200W sustained
 		float PilotLegPowerW = 350.0f;  // Sprint power (W)
-		float WingDragGroundN = 0.5f * Rho * AirspeedMs * AirspeedMs * WingModel.WingArea * 0.10f * CellFillFactor;
+		float WingDragGroundN = 0.5f * Rho * AirspeedMs * AirspeedMs * WingModel.WingArea * WingModel.CD0 * CellFillFactor;
 		// Rolling resistance from ground friction: μ × N (normal force = weight - lift)
-		float RollingMu = 0.08f;  // Rolling friction coefficient (shoes on grass)
+		float RollingMu = 0.4f;  // Rubber soles on grass
 		float RollingResistanceN = RollingMu * FMath::Max(0.0f, WeightN - LiftN);
 		float TotalResistanceN = WingDragGroundN + RollingResistanceN;
-		float MaxRunSpeedMs = (TotalResistanceN > 1.0f) ? PilotLegPowerW / TotalResistanceN : 8.0f;
+		float MaxRunSpeedMs = (TotalResistanceN > 1.0f) ? PilotLegPowerW / TotalResistanceN : 6.0f;
 		// Physical bounds: walking ~1.5 m/s, human sprint ~12 m/s (with paramotor ~8 m/s)
-		MaxRunSpeedMs = FMath::Clamp(MaxRunSpeedMs, 1.5f, 12.0f);
+		MaxRunSpeedMs = FMath::Clamp(MaxRunSpeedMs, 1.5f, 10.0f);  // Human sprint ~10 m/s
 		// Traction: normal force = weight - lift. Friction = μ × N.
 		// μ = 0.4 (rubber soles on grass). When N → 0, traction → 0 (can't run).
 		float NormalForceN = FMath::Max(0.0f, WeightN - LiftN);
@@ -220,7 +220,7 @@ if (bWasOnGround && TakeoffSkipZ < PrevSkipZ - 1.0f)				{
 		Char->GetCharacterMovement()->MaxWalkSpeed = MaxRunSpeed;
 // === STALL SPEED (for HUD display) ===
 float StallDenom = Rho * WingModel.WingArea * WingModel.CLMax;
-float StallSpeedMs = StallDenom > 0.0f ? FMath::Sqrt(2.0f * TotalMassKg * 9.81f / StallDenom) : 10.0f;
+float StallSpeedMs = StallDenom > 0.0f ? FMath::Sqrt(2.0f * TotalMassKg * 9.81f / StallDenom) : 8.0f;
 float TakeoffSpeedMs = StallSpeedMs;
 // Need full stall speed to truly fly
 // Store debug values
@@ -245,19 +245,19 @@ UE_LOG(LogTemp, Warning, TEXT("GRUN: air=%.1fmph grd=%.1fmph wnd=%.1fmph(±%.1f)
 		// takeoff, but the threshold is based on the physics of stable flight,
 		// not an arbitrary number. A typical takeoff requires ~0.2-0.5s of sustained
 		// lift > weight, which naturally emerges from the gust frequency.
-		bool bAirborne = (TakeoffSkipZ > 50.0f);
+		bool bAirborne = (TakeoffSkipZ > 5.0f);  // 5cm = just left ground
 		bool bLiftExceedsWeight = (WeightSupport > 1.0f);
 		bool bHasAirspeed = (AirspeedMs > MIN_TAKEOFF_AIRSPEED_MS);
 		if (bAirborne && bLiftExceedsWeight && bHasAirspeed)
 			SustainedAirTime += DeltaTime;
 		else
-			SustainedAirTime = FMath::Max(0.0f, SustainedAirTime - DeltaTime * 2.0f);
+			SustainedAirTime = FMath::Max(0.0f, SustainedAirTime - DeltaTime);
 		// Takeoff when sustained for 1 wing-period (natural stability timescale)
 		// Wing period = 1/f, f = natural frequency of pendulum = √(g/L) / (2π)
 		// For 7m lines: T ≈ 5.3s, but takeoff happens in the first quarter period
 		// when the wing is still overhead and stable → ~1.3s
 		// Using 0.3s as the minimum stable flight time (emerges from gust statistics)
-		if (SustainedAirTime > 0.3f)				{
+		if (SustainedAirTime > 0.5f)  // Half second of sustained flight				{
 					SustainedAirTime = 0.0f;
 WingState = EWingState::Flying;
 bIsAirborne = true;
@@ -279,11 +279,11 @@ Char->GetCharacterMovement()->bUseControllerDesiredRotation = false;
 }
 // Initial upward velocity from the lift
 FVector FlightVel = Char->GetCharacterMovement()->Velocity;
-FlightVel.Z = FMath::Max(FlightVel.Z, 100.0f);
+// No forced upward velocity - use actual vertical velocity from lift
 Char->GetCharacterMovement()->Velocity = FlightVel;
 // Initialize pendulum
 					PendulumAngle = 0.0f;
-PendulumAngularVel = ThrottleAmount * 0.4f;
+PendulumAngularVel = 0.0f;  // Start at rest
 PrevThrottleAmount = ThrottleAmount;
 ThrottleRate = 0.0f;
 FlightTime = 0.0f;
@@ -325,7 +325,7 @@ UE_LOG(LogTemp, Warning, TEXT("WingActor: TAKEOFF! air=%.1fmph grd=%.1fmph thr=%
 
 float KiteWeightRatio = WingModel.MaxTakeoffWeight > 0.0f ? PilotWeight / WingModel.MaxTakeoffWeight : 1.0f;
 // Overloaded wings are more collapse-resistant (higher internal pressure)
-float CollapseResistance = FMath::Clamp(KiteWeightRatio, 0.5f, 2.0f);
+float CollapseResistance = FMath::Max(0.1f, KiteWeightRatio);
 // 0.5x at light load, 2.0x at heavy
 // Fast trimmers reduce collapse resistance (reflex mode is twitchy)
 		CollapseResistance /= GetTrimmerCollapseRisk();
@@ -347,9 +347,9 @@ PilotRight2.Normalize();
 		float LocalTotalBrake = (LeftBrakeAmount + RightBrakeAmount) * 0.5f;
 	// No brakes = less drag damping = wing surges faster (physical, not a multiplier)
 	// Damping ratio: ζ ∝ CD_brake. No brakes → ζ → 0 → surge overshoot ~2x
-	float BrakeDampingFactor = 1.0f / (1.0f + LocalTotalBrake * 2.0f);  // 1.0 no brake, 0.33 full brake
+	float BrakeDampingFactor = 1.0f / (1.0f + LocalTotalBrake * 1.5f);  // From brake drag increase
 	// Cell deflation rate from airspeed (same physics as flight collapses)
-	float KiteDeflateRate = FMath::Max(1.0f, CurrentWindSpeed / 3.0f);  // Vms/3
+	float KiteDeflateRate = FMath::Max(0.5f, CurrentWindSpeed * 0.33f);
 // === FRONTAL COLLAPSE during kiting ===
 // Triggered when the wing surges too far forward (KiteOffset forward component)
 // combined with turbulence. The further forward, the more likely.
@@ -361,20 +361,19 @@ float ForwardSurge = FVector::DotProduct(KiteOffset, PilotFwd2);
 // Normal inflation overshoot is 100-300cm — should NOT trigger collapse
 
 float FrontalRisk = 0.0f;
-if (ForwardSurge > 400.0f)  // Wing is surging forward significantly
+if (ForwardSurge > LINE_LENGTH_CM * 0.5f)  // Wing past 45 degrees from overhead
 {
-			FrontalRisk = (ForwardSurge - 400.0f) / 300.0f;
+			FrontalRisk = (ForwardSurge - LINE_LENGTH_CM * 0.5f) / (LINE_LENGTH_CM * 0.3f);
 // 0 at 400cm, 1 at 700cm
-			FrontalRisk *= (CurrentWindSpeed / 8.0f);
+			FrontalRisk *= (CurrentWindSpeed * CurrentWindSpeed / 64.0f);  // Dynamic pressure scaling
 // Stronger wind = more risk (but need 8+ m/s for significant risk)
-			FrontalRisk *= (1.0f +
-FMath::Abs(WindTurbulence) * 0.5f);
+			FrontalRisk *= (1.0f + FMath::Abs(WindTurbulence) * 0.5f);
 // Turbulence amplifies
 			FrontalRisk /= CollapseResistance;
 // Heavily loaded wings resist
 // Sudden brake release amplifies risk (wing shoots forward)
 
-		if (LocalTotalBrake < 0.1f && LeftBrakeAmount < 0.1f && RightBrakeAmount < 0.1f)
+		if (LocalTotalBrake < 0.01f)
 		{
 			FrontalRisk *= BrakeDampingFactor;  // No brake damping → faster surge
 		}
@@ -383,13 +382,13 @@ FMath::Abs(WindTurbulence) * 0.5f);
 		// Real frontal collapse: wing surges past ~45° from overhead = ~500cm on 7m lines
 		// Normal inflation overshoot is 100-300cm — should NOT trigger collapse
 		// Collapse amount ramps up deterministically when surge exceeds threshold
-		if (ForwardSurge > 400.0f)
+		if (ForwardSurge > LINE_LENGTH_CM * 0.5f)
 		{
-			float FrontalSeverity = FMath::Clamp((ForwardSurge - 400.0f) / 300.0f, 0.0f, 1.0f);
-			FrontalSeverity *= (CurrentWindSpeed / 8.0f);
+			float FrontalSeverity = FMath::Clamp((ForwardSurge - LINE_LENGTH_CM * 0.5f) / (LINE_LENGTH_CM * 0.3f), 0.0f, 1.0f);
+			FrontalSeverity *= (CurrentWindSpeed * CurrentWindSpeed / 64.0f);
 			FrontalSeverity *= (1.0f + FMath::Abs(WindTurbulence) * 0.5f);
 			FrontalSeverity /= CollapseResistance;
-			if (LocalTotalBrake < 0.1f && LeftBrakeAmount < 0.1f && RightBrakeAmount < 0.1f)
+			if (LocalTotalBrake < 0.01f)
 				FrontalSeverity *= BrakeDampingFactor;  // No brake damping → faster surge
 			// Ramp up collapse at cell deflation rate
 			FrontalCollapseAmount = FMath::Min(1.0f, FrontalCollapseAmount + FrontalSeverity * DeltaTime * KiteDeflateRate);
@@ -409,10 +408,10 @@ FMath::Abs(WindTurbulence) * 0.5f);
 			PilotRight2);
 
 		// Deterministic asymmetric collapse from wind side component
-		if (FMath::Abs(WindSideComponent) > 0.3f && FMath::Abs(WindDirShift) > 0.1f)
+		if (FMath::Abs(WindSideComponent) > 0.1f)
 		{
-			float AsymSeverity = FMath::Abs(WindSideComponent) * 0.5f;
-			AsymSeverity *= (1.0f + FMath::Abs(WindTurbulence) * 0.3f);
+			float AsymSeverity = FMath::Abs(WindSideComponent);
+			// Turbulence already in wind vector - no extra multiplier
 			AsymSeverity *= GetTrimmerCollapseRisk();
 			AsymSeverity /= CollapseResistance;
 			// The side AWAY from the wind shift collapses (loses pressure)
@@ -442,9 +441,9 @@ FMath::Abs(WindTurbulence) * 0.5f);
 // Recovery rate depends on airspeed (more wind = faster recovery).
 
 // Recovery rate from cell refill physics (same as flight: Vms/5)
-float RecoveryRate = FMath::Max(0.5f, CurrentWindSpeed / 5.0f) / CollapseResistance;
+float RecoveryRate = FMath::Max(0.3f, CurrentWindSpeed * 0.20f) / CollapseResistance;
 // Brakes slow recovery (holding brakes keeps the wing collapsed longer)
-		RecoveryRate *= (1.0f - LocalTotalBrake * 0.5f);
+		RecoveryRate *= (1.0f - LocalTotalBrake);
 if (FrontalCollapseAmount > 0.0f)		{
 			FrontalCollapseAmount = FMath::Max(0.0f, FrontalCollapseAmount - RecoveryRate * DeltaTime);
 }
@@ -462,7 +461,6 @@ if (FrontalCollapseAmount > 0.0f)		{
 // - Worse climb performance
 // No collapse or inflation loss from overload alone.
 
-}
 }
 
 float AWingActor::GetTakeoffChance() const{
