@@ -386,6 +386,9 @@ CanopyIdx, StartIdx, side, (int32)Lvl.Level, rib
 
 void AWingActor::SimulateLines(float DeltaTime){
 	if (LineParticles.Num() == 0) return;
+	// Cache actor transform — used in multiple blocks below
+	FTransform CachedActorTransform = GetActorTransform();
+	FVector CachedActorLoc = GetActorLocation();
 // Brake response: physical line dynamics
 // Brake line wave speed: c = sqrt(T/μ) where T=tension, μ=linear density
 // For Dyneema 1.5mm: T~50N, μ~0.002 kg/m → c ~160 m/s
@@ -410,8 +413,8 @@ LineParticles[Att.LineParticleIdx].OldPos = LineParticles[Att.LineParticleIdx].P
 // When the wing is inflated overhead, the riser points UP.
 
 if (bRisersConnected)	{
-		FTransform ActorTransform = GetActorTransform();
-FVector WingWorldPos = GetActorLocation();
+		FTransform ActorTransform = CachedActorTransform;
+FVector WingWorldPos = CachedActorLoc;
 auto UpdateCarabinerAndRiser = [&](int32 CarabIdx, int32 RiserIdx, FVector CarabWorldPos)		{
 			if (CarabIdx < 0 || CarabIdx >= LineParticles.Num()) return;
 // Carabiner at the harness
@@ -471,7 +474,7 @@ if (bRisersConnected)	{
 	// During flight, the constraint solving keeps them taut between canopy and riser.
 	{
 		// Wind direction in local space
-		FTransform ActorTransform = GetActorTransform();
+		FTransform ActorTransform = CachedActorTransform;
 		FVector WindDirLocal = ActorTransform.InverseTransformVector(WindDirection);
 		float WindMs = CurrentWindSpeed;
 		// During flight, also account for apparent wind from pilot velocity
@@ -519,10 +522,10 @@ float LineDragAccel = (LineDragN / FMath::Max(0.0001f, LP.Mass)) * CM_PER_M;
 // Apply wind drag in apparent wind direction
 LP.Pos += ApparentWindDir * LineDragAccel * DeltaTime * DeltaTime;
 // Ground collision (in world space)
-FVector WorldPos = GetActorLocation() + LP.Pos;
+FVector WorldPos = CachedActorLoc + LP.Pos;
 float GZ = GetCachedGroundZ(WorldPos);
 if (WorldPos.Z < GZ)			{
-				LP.Pos.Z = GZ - GetActorLocation().Z;
+				LP.Pos.Z = GZ - CachedActorLoc.Z;
 LP.OldPos.Z = LP.Pos.Z;
 }
 }
@@ -532,8 +535,8 @@ LP.OldPos.Z = LP.Pos.Z;
 // When brake is pulled, handle moves down further
 
 if (bRisersConnected)	{
-		FTransform ActorTransform = GetActorTransform();
-FVector WingWorldPos = GetActorLocation();
+		FTransform ActorTransform = CachedActorTransform;
+FVector WingWorldPos = CachedActorLoc;
 auto UpdateBrakeHandle = [&](int32 HandleIdx, int32 RiserIdx2, FVector CarabWorldPos, float BrakeAmount)		{
 			if (HandleIdx < 0 || HandleIdx >= LineParticles.Num()) return;
 if (RiserIdx2 < 0 || RiserIdx2 >= LineParticles.Num()) return;
@@ -584,7 +587,7 @@ if (!PB.bPinned) PB.Pos -= Offset;
 // This only kicks in when the canopy exceeds the total line length.
 // Skip during inflation so the wing can rise freely
 if (bRisersConnected && WingState != EWingState::Inflating)	{
-		FTransform ActorTransform = GetActorTransform();
+		FTransform ActorTransform = CachedActorTransform;
 for (const FLineAttachment& Att : LineAttachments)		{
 			if (Att.CanopyParticleIdx < 0 || Att.CanopyParticleIdx >= Particles.Num()) continue;
 // Determine which carabiner and total line length for this attachment
@@ -696,7 +699,7 @@ LineParticles[LineStart + seg].OldPos += PullLocal * (float)seg / (float)(MaxSeg
 		// Now check if the wing actor itself needs to move
 // If multiple canopy particles are being pulled, the whole wing should follow
 
-FVector ActorLoc = GetActorLocation();
+FVector ActorLoc = CachedActorLoc;
 FVector CarabMid = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
 FVector ToWing = ActorLoc - CarabMid;
 ToWing.Z = 0.0f;
