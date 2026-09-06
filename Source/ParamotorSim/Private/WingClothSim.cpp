@@ -388,6 +388,8 @@ if (WingState == EWingState::Inflating || WingState == EWingState::Inflated)		Ef
 // Canopy particles are spring-coupled to target positions (DEFORMABLE CANOPY section below)
 	bool bSkipCanopyPhysics = (WingState == EWingState::Inflating && bLiftingALines) ||
 		(WingState == EWingState::Inflated || WingState == EWingState::Flying);
+	// Cache actor location once for all particle updates
+	FVector CachedActorLoc = GetActorLocation();
 for (int32 i = 0; i < Particles.Num(); i++)	{
 		FClothParticle& P = Particles[i];
 if (P.bPinned || P.bGrabbed) continue;
@@ -397,8 +399,8 @@ P.OldPos = P.Pos;
 P.Pos += Vel;
 P.Pos.Z -= Gravity * DeltaTime * DeltaTime;
 // Ground collision — P.Pos is LOCAL to actor, GZ is WORLD. Convert properly.
-float ActorZ = GetActorLocation().Z;
-float GZ = GetCachedGroundZ(GetActorLocation() + P.Pos);
+float ActorZ = CachedActorLoc.Z;
+float GZ = GetCachedGroundZ(CachedActorLoc + P.Pos);
 float LocalGZ = GZ - ActorZ;  // Convert world ground Z to local space
 if (P.Pos.Z < LocalGZ)		{
 			P.Pos.Z = LocalGZ;
@@ -409,8 +411,7 @@ P.OldPos.Z = LocalGZ;
 for (int32 i = 0; i < Particles.Num(); i++)	{
 		FClothParticle& P = Particles[i];
 if (P.bGrabbed)		{
-			FVector ActorLoc = GetActorLocation();
-FVector Target = GrabHandPos - ActorLoc;
+			FVector Target = GrabHandPos - CachedActorLoc;
 P.OldPos = P.Pos;
 P.Pos = Target;
 }
