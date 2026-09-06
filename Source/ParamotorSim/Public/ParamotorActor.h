@@ -93,8 +93,6 @@ protected:
 	UAudioComponent* ExhaustAudio = nullptr;
 	UPROPERTY()
 	UAudioComponent* PropWindAudio = nullptr;
-	UPROPERTY()
-	UAudioComponent* WingInflateAudio = nullptr;
 
 	// All mesh components (populated in BeginPlay)
 	UPROPERTY()

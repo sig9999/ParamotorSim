@@ -55,11 +55,6 @@ AParamotorActor::AParamotorActor()
 	PropWindAudio->SetupAttachment(Root);
 	PropWindAudio->bAutoActivate = false;
 	PropWindAudio->SetRelativeLocation(FVector(15.0f, 0.0f, 73.0f)); // At the prop
-
-	WingInflateAudio = CreateDefaultSubobject<UAudioComponent>(TEXT("WingInflateAudio"));
-	WingInflateAudio->SetupAttachment(Root);
-	WingInflateAudio->bAutoActivate = false;
-	WingInflateAudio->SetRelativeLocation(FVector(0.0f, 0.0f, 200.0f));
 }
 
 const TArray<FString> AParamotorActor::GetParamotorMeshPaths()
@@ -309,7 +304,6 @@ void AParamotorActor::InitAudio()
 	USoundBase* EngineSound = LoadObject<USoundBase>(nullptr, TEXT("/Game/Sounds/engine_running.engine_running"));
 	USoundBase* ExhaustSound = LoadObject<USoundBase>(nullptr, TEXT("/Game/Sounds/exhaust.exhaust"));
 	USoundBase* PropWindSound = LoadObject<USoundBase>(nullptr, TEXT("/Game/Sounds/prop_wind.prop_wind"));
-	USoundBase* WingInflateSound = LoadObject<USoundBase>(nullptr, TEXT("/Game/Sounds/wing_inflate.wing_inflate"));
 
 	if (StarterSound)
 	{
@@ -324,10 +318,9 @@ void AParamotorActor::InitAudio()
 	if (IdleSound) EngineAudio->SetSound(IdleSound);
 	if (ExhaustSound) ExhaustAudio->SetSound(ExhaustSound);
 	if (PropWindSound) PropWindAudio->SetSound(PropWindSound);
-	if (WingInflateSound) WingInflateAudio->SetSound(WingInflateSound);
 
-	UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Audio initialized (starter=%d idle=%d exhaust=%d prop=%d wing=%d)"),
-		StarterSound ? 1 : 0, IdleSound ? 1 : 0, ExhaustSound ? 1 : 0, PropWindSound ? 1 : 0, WingInflateSound ? 1 : 0);
+	UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Audio initialized (starter=%d idle=%d exhaust=%d prop=%d)"),
+		StarterSound ? 1 : 0, IdleSound ? 1 : 0, ExhaustSound ? 1 : 0, PropWindSound ? 1 : 0);
 }
 
 void AParamotorActor::BeginPlay()
