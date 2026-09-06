@@ -4,7 +4,6 @@
 #include "GameFramework/Actor.h"
 #include "Components/StaticMeshComponent.h"
 #include "ProceduralMeshComponent.h"
-#include "Components/PointLightComponent.h"
 #include "WingActor.generated.h"
 
 // ============================================================
@@ -70,7 +69,6 @@ class UStaticMeshComponent;
 class UProceduralMeshComponent;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
-class UPointLightComponent;
 class AParamotorActor;
 
 // ============================================================
