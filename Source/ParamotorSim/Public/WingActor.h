@@ -390,7 +390,6 @@ protected:
 	float ClimbRate = 0.0f;            // Vertical speed (cm/s)
 	float GlideRatio = 0.0f;           // Current L/D glide ratio
 	float ThrottleAmount = 0.0f;       // 0-1, set by controller
-	float PrevThrottleAmount = 0.0f;   // Previous frame throttle (for rate-of-change)
 	float WeightShift = 0.0f;          // -1=left, 0=center, +1=right (from mouse look)
 
 	// Pendulum physics — pilot swings under wing when feet leave ground

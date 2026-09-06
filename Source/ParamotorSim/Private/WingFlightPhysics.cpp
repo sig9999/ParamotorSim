@@ -628,10 +628,6 @@ float PendulumOmega = FMath::Sqrt(GravityAccel / LineLength);
 // 1.18 rad/s
 float PendulumOmegaSq = PendulumOmega * PendulumOmega;
 
-// === THROTTLE RATE TRACKING (for logging only) ===
-float ThrottleDelta = ThrottleAmount - PrevThrottleAmount;
-PrevThrottleAmount = ThrottleAmount;
-
 // Thrust creates angular acceleration on the pendulum (pushes pilot forward)
 // Real physics: α = a_thrust / L (torque = F×L, α = τ/(m×L²) = F/(m×L) = a/L)
 float PendulumDriveAccel = ThrustAccel / LineLength;
@@ -1291,7 +1287,6 @@ bool AWingActor::HandleLanding(ACharacter* Char, float DeltaTime, FVector& NewVe
 	// Reset pendulum, pitch, and collapse states
 	PendulumAngle = 0.0f;
 	PendulumAngularVel = 0.0f;
-	PrevThrottleAmount = ThrottleAmount;
 	PilotPitch = 0.0f;
 	PilotPitchTarget = 0.0f;
 	bSeated = false;

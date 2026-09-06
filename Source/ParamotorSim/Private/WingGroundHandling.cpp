@@ -275,7 +275,6 @@ Char->GetCharacterMovement()->Velocity = FlightVel;
 // Initialize pendulum
 					PendulumAngle = 0.0f;
 PendulumAngularVel = 0.0f;  // Start at rest
-PrevThrottleAmount = ThrottleAmount;
 FlightTime = 0.0f;
 PilotPitch = 0.0f;
 PilotPitchTarget = 0.0f;  // Start upright — auto-transitions to seated after launch
