@@ -444,15 +444,14 @@ RiserLogTimer += DeltaTime;
 if (RiserLogTimer > 1.0f && LeftRiserIdx >= 0 && RightRiserIdx >= 0)
 {
 	RiserLogTimer = 0.0f;
-	FTransform T = GetActorTransform();
-	FVector LCarabWorld = T.TransformPosition(LineParticles[LeftCarabinerIdx].Pos);
-	FVector RCarabWorld = T.TransformPosition(LineParticles[RightCarabinerIdx].Pos);
-	FVector LRiserWorld = T.TransformPosition(LineParticles[LeftRiserIdx].Pos);
-	FVector RRiserWorld = T.TransformPosition(LineParticles[RightRiserIdx].Pos);
+	FVector LCarabWorld = ActorTransform.TransformPosition(LineParticles[LeftCarabinerIdx].Pos);
+	FVector RCarabWorld = ActorTransform.TransformPosition(LineParticles[RightCarabinerIdx].Pos);
+	FVector LRiserWorld = ActorTransform.TransformPosition(LineParticles[LeftRiserIdx].Pos);
+	FVector RRiserWorld = ActorTransform.TransformPosition(LineParticles[RightRiserIdx].Pos);
 	UE_LOG(LogTemp, Warning, TEXT("RISER: Carab L=%s R=%s | Riser L=%s R=%s | Wing=%s"),
 		*LCarabWorld.ToString(), *RCarabWorld.ToString(),
 		*LRiserWorld.ToString(), *RRiserWorld.ToString(),
-		*GetActorLocation().ToString());
+		*WingWorldPos.ToString());
 }
 }
 	else	{
