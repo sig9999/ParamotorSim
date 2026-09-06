@@ -975,7 +975,7 @@ Vel.Y = NewVy;
 	StallLogTimer += DeltaTime;
 if (StallLogTimer > 0.5f && (LeftAoA > StallAoA || RightAoA > StallAoA ||		LeftCollapseAmount > 0.1f || RightCollapseAmount > 0.1f || FrontalCollapseAmount > 0.1f ||		bInParachutalStall))	{
 		StallLogTimer = 0.0f;
-UE_LOG(LogTemp, Warning, TEXT("WingActor: L_AoA=%.1f° R_AoA=%.1f° L_CL=%.2f R_CL=%.2f roll=%.1f yaw=%.1f pitch=%.1f | Col: L=%.0f%% R=%.0f%% F=%.0f%% Stall=%d"),			LeftAoA, RightAoA, LeftCL, RightCL, CurrentRoll, YawRate, WingPitchAngle,			LeftCollapseAmount * 100, RightCollapseAmount * 100, FrontalCollapseAmount * 100,			bInParachutalStall ? 1 : 0);
+UE_LOG(LogTemp, Warning, TEXT("WingActor: L_AoA=%.1f° R_AoA=%.1f° L_CL=%.2f R_CL=%.2f roll=%.1f yaw=%.1f pitch=%.1f | Col: L=%.0f%% R=%.0f%% F=%.0f%% Stall=%d"),			LeftAoA, RightAoA, LeftCL, RightCL, CurrentRoll, YawRate, WingPitchAngle,			LeftCollapseAmount * PERCENT_FACTOR, RightCollapseAmount * PERCENT_FACTOR, FrontalCollapseAmount * PERCENT_FACTOR,			bInParachutalStall ? 1 : 0);
 }
 	// === APPLY FORCES ===
 FVector PawnFwd = Pawn->GetActorForwardVector();

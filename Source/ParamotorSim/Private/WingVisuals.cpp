@@ -334,7 +334,7 @@ void AWingActor::SetInflatedShape(){
 		Particles[i].Pos = TargetPositions[i];
 		Particles[i].OldPos = TargetPositions[i];
 	}
-	UE_LOG(LogTemp, Warning, TEXT("WingActor: SetInflatedShape — cell fill drives shape (fill=%.0f%%)"), CellFillFactor * 100);
+	UE_LOG(LogTemp, Warning, TEXT("WingActor: SetInflatedShape — cell fill drives shape (fill=%.0f%%)"), CellFillFactor * PERCENT_FACTOR);
 }
 
 void AWingActor::ApplyInflatedShape(float DeltaTime){
