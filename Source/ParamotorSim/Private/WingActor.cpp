@@ -540,7 +540,7 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
     }
 
     // Blend with direction-to-wing when wing is far from carabiner
-    FVector ToWing = GetActorLocation() - CarabMidWorld;
+    FVector ToWing = ActorLoc - CarabMidWorld;
     ToWing.Z = 0.0f;
     float ToWingDist = ToWing.Size();
     float DesiredYaw = WingGroundYaw;
@@ -565,7 +565,7 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
         // On ground: pendAngle=90°, pitch=0° (flat)
         // At zenith: pendAngle=0°, pitch=-90° (upright)
         FVector CarabMidPitch = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
-        FVector ToWingPitch = GetActorLocation() - CarabMidPitch;
+        FVector ToWingPitch = ActorLoc - CarabMidPitch;
         float HorizDistPitch = FVector(ToWingPitch.X, ToWingPitch.Y, 0.0f).Size();
         float HeightAboveCarabPitch = FMath::Max(0.0f, ToWingPitch.Z);
         float PendAnglePitch = FMath::Atan2(HorizDistPitch, FMath::Max(1.0f, HeightAboveCarabPitch));
@@ -578,8 +578,8 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
         // not the whole wing. Only applies while A-lines are actively pulled.
         if (bLiftingALines && ALineFadeFactor > 0.01f)
         {
-            float GZp = GetGroundZ(GetActorLocation());
-            float HAG = GetActorLocation().Z - GZp;
+            float GZp = GetGroundZ(ActorLoc);
+            float HAG = ActorLoc.Z - GZp;
             float HeightFraction = FMath::Clamp(HAG / LINE_LENGTH_CM, 0.0f, 1.0f);
             // LE lift angle: ~25° at ground, fades as wing rises (pilot can't reach as high)
             DesiredPitch -= 25.0f * (1.0f - HeightFraction) * ALineFadeFactor;
