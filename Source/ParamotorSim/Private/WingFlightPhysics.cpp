@@ -149,7 +149,7 @@ UpdateCellPressure(DeltaTime, Vms, EffectiveLeftBrake, EffectiveRightBrake);
 // === THERMALS (buoyancy-based updraft model) ===
 float ThermalLiftMs = ComputeThermalLiftMs(AltitudeM);
 // Apply thermal lift as additional vertical air velocity (not acceleration)
-ApparentWind.Z += ThermalLiftMs * 100.0f;  // m/s to cm/s vertical air movement  // m/s → cm/s vertical air movement
+ApparentWind.Z += ThermalLiftMs * 100.0f;  // m/s to cm/s vertical air movement
 // Per-side AoA: base cruise + effective brake (with lag) + turbulence
 // Vertical turbulence changes AoA — TurbVertState is in m/s, convert to AoA:
 // ΔAoA ≈ atan(ΔV_vert / V_airspeed) ≈ ΔV_vert / V (small angle)
@@ -1087,95 +1087,7 @@ return;
 if (NewVel.Z > 2000.0f) NewVel.Z = 2000.0f;    // 20 m/s climb — NaN protection only
 if (NewVel.Z < -10000.0f) NewVel.Z = -10000.0f; // 100 m/s sink — NaN protection only
 // === GROUND COLLISION / LANDING ===
-
-FVector PawnLoc = Pawn->GetActorLocation();
-float GZ = GetGroundZ(PawnLoc);
-if (PawnLoc.Z <= GZ + 1.0f && NewVel.Z < 0)	{
-		// === GROUND CONTACT (real collision response) ===
-		// Landing speed in m/s (positive = downward)
-		float LandingSpeedMs = -NewVel.Z / 100.0f;
-
-		// Injury check
-		AParamotorCharacter* ParamotorChar = Cast<AParamotorCharacter>(Char);
-		if (ParamotorChar && LandingSpeedMs > 3.0f)
-		{
-			ParamotorChar->ApplyImpactInjury(LandingSpeedMs, false);
-		}
-
-		// Vertical collision response: no bounce (pilot's legs absorb the impact)
-		// Real paraglider landings stick — the pilot runs or collapses, no bounce
-		float Restitution = 0.0f;
-		NewVel.Z = -NewVel.Z * Restitution;  // Zero bounce
-
-		// Ground friction: horizontal velocity decays from ground contact
-		// Real paraglider landing: pilot runs a few steps, friction slows them
-		// Friction coefficient: μ = 0.4 (rubber soles on grass)
-		float FrictionCoeff = 0.4f;
-		float LandingHorizSpeed = FMath::Sqrt(NewVel.X * NewVel.X + NewVel.Y * NewVel.Y);
-		// Normal force = weight + deceleration impulse force
-		// N = m×g + m×(Δv/Δt), where Δv = landing speed, Δt = collision duration
-		// Collision duration for leg-landing: ~0.1s (real impact absorption time)
-		float CollisionDurationS = 0.1f;
-		float DecelForce = TotalMassKg * LandingSpeedMs / CollisionDurationS;  // N
-		float NormalForce = TotalMassKg * 9.81f + DecelForce;  // Weight + impact force
-		float FrictionDecel = FrictionCoeff * NormalForce * DeltaTime * 100.0f;  // cm/s deceleration
-		if (LandingHorizSpeed > 0.0f)
-		{
-			float FrictionFactor = FMath::Max(0.0f, 1.0f - FrictionDecel / LandingHorizSpeed);
-			NewVel.X *= FrictionFactor;
-			NewVel.Y *= FrictionFactor;
-		}
-bIsAirborne = false;
-Char->GetCharacterMovement()->GravityScale = 1.0f;
-Char->GetCharacterMovement()->AirControl = 0.05f;
-Char->GetCharacterMovement()->MaxAcceleration = 2048.0f;
-Char->bUseControllerRotationYaw = true;
-Char->GetCharacterMovement()->bOrientRotationToMovement = false;
-Char->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-// Reset pendulum, pitch, and collapse states on landing
-		PendulumAngle = 0.0f;
-PendulumAngularVel = 0.0f;
-PrevThrottleAmount = ThrottleAmount;
-ThrottleRate = 0.0f;
-PilotPitch = 0.0f;
-PilotPitchTarget = 0.0f;
-bSeated = false;
-bAutoSeatPending = false;
-LaunchTimer = 0.0f;
-LaunchAngleOffset = 0.0f;
-SeatTransition = 0.0f;
-DragReductionFromSeat = 0.0f;
-HangPointOffset = 0.0f;
-WingPitchAngle = 0.0f;
-WingPitchRate = 0.0f;
-WingRollRate = 0.0f;
-WingYawRate = 0.0f;
-CurrentRoll = 0.0f;
-// BUG FIX: was not reset — bank persisted after landing
-PilotRollAngle = 0.0f;
-PilotRollRate = 0.0f;
-		EffectiveLeftBrake = 0.0f;
-// BUG FIX: was not reset — stale brake values persisted
-		EffectiveRightBrake = 0.0f;
-LeftCollapseAmount = 0.0f;
-RightCollapseAmount = 0.0f;
-FrontalCollapseAmount = 0.0f;
-bInParachutalStall = false;
-ParachutalStallTimer = 0.0f;
-PropTorqueRoll = 0.0f;
-SpiralDiveFactor = 0.0f;
-DutchRollYaw = 0.0f;
-DutchRollRoll = 0.0f;
-DutchRollPhase = 0.0f;
-// Reset trimmers to neutral on landing (real pilots trim neutral for landing)
-		TrimmerPosition = 0.0f;
-TrimmerTarget = 0.0f;
-
-if (NewVel.Size2D() < 100.0f)		{
-			WingState = EWingState::Inflated;
-UE_LOG(LogTemp, Warning, TEXT("WingActor: Landed — back to inflated/ground"));
-}
-}
+HandleLanding(Char, DeltaTime, NewVel, TotalMassKg);
 // === MOVE PILOT — direct actor movement, bypassing CMC ===
 // CMC is in MOVE_None during flight, so we move the actor directly.
 // This gives us 100% control over position and velocity with no CMC interference.
@@ -1196,71 +1108,10 @@ UE_LOG(LogTemp, Warning, TEXT("WingActor: Landed — back to inflated/ground"));
 	Char->GetCharacterMovement()->Velocity = NewVel;
 }
 // === WING POSITION (rigid line constraint) ===
-// The wing is connected to the pilot by rigid 7m lines.
-// It should be positioned INSTANTLY at the correct position — not lerped.
-// The wing sits above and slightly behind the pilot (from drag + pendulum).
-// Lerping causes the wing to lag behind during flight, making it appear
-// "close and behind" instead of properly overhead at line length.
-
-if (bRisersConnected)	{
-		FVector CarabMid = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
-FVector PawnFwd2D = FVector(PawnFwd.X, PawnFwd.Y, 0.0f).GetSafeNormal();
-FVector PawnRight2D = FVector::CrossProduct(FVector::UpVector, PawnFwd2D).GetSafeNormal();
-// Wing position: above carabiner at line length + pendulum offset
-float HeightAboveCarab = LINE_LENGTH_CM;  // 750cm = 7.5m (real Charger 25M)
-// When pilot swings forward (positive angle), wing shifts backward
-float PendulumBackOffset = FMath::Sin(PendulumAngle) * LineLength;
-// In flight, wing is slightly behind from drag (real: ~0.5m at trim)
-float DragBackOffset = FMath::Atan(DragN / FMath::Max(1.0f, LiftN)) * LineLength;
-// Weight shift: pilot hangs to one side → wing shifts slightly the other way
-float WeightShiftLateral = -WeightShift * WeightShiftCGOffset * CM_PER_M;
-// Roll pendulum lateral offset: when pilot lags behind wing bank, lines tilt
-// and wing shifts sideways. Real geometry: offset = L × sin(Δroll)
-// When pilot is aligned with wing (coordinated), Δroll = 0, no offset.
-// During turn entry/exit, the lag creates visible line tilt.
-float RollDifferenceDeg = CurrentRoll - PilotRollAngle;
-float RollPendulumLateral = FMath::Sin(RollDifferenceDeg * PI / 180.0f) * LineLength;
-FVector DesiredWingPos = CarabMid
-			+ FVector(0, 0, HeightAboveCarab)
-			- PawnFwd2D * (DragBackOffset + PendulumBackOffset)
-			+ PawnRight2D * (WeightShiftLateral + RollPendulumLateral);
-// INSTANT positioning — lines are rigid, wing doesn't "lerp" to position
-FVector CurrentPos = GetActorLocation();
-FVector Shift = DesiredWingPos - CurrentPos;
-SetActorLocation(DesiredWingPos, false);
-// Shift all particles with the actor
-for (int32 i = 0; i < Particles.Num(); i++)		{
-			if (!Particles[i].bPinned && !Particles[i].bGrabbed)			{
-				Particles[i].Pos += Shift;
-Particles[i].OldPos += Shift;
-}
-}
-		for (int32 i = 0; i < LineParticles.Num(); i++)		{
-			if (!LineParticles[i].bPinned)			{
-				LineParticles[i].Pos += Shift;
-LineParticles[i].OldPos += Shift;
-}
-}
-		// Wing rotation: face away from pilot + 180° (mesh orientation)
-// The wing has its OWN bank angle (CurrentRoll) — independent of the pilot
-FVector ToWing = GetActorLocation() - CarabMid;
-ToWing.Z = 0.0f;
-FRotator DesiredRot;
-if (ToWing.Size() > LineLength * 0.05f)		{
-			DesiredRot.Yaw = FMath::Atan2(ToWing.Y, ToWing.X) * 180.0f / PI + 180.0f;
-}
-		else		{
-			// Near zenith: use pilot's facing direction + 180° (stable reference)
-			DesiredRot.Yaw = FMath::Atan2(PawnFwd.Y, PawnFwd.X) * 180.0f / PI + 180.0f;
-}
-		DesiredRot.Pitch = WingPitchAngle;  // Wing has its own pitch
-// Wing banks at its own angle (CurrentRoll) — NOT the pilot's angle
-// Negative because wing mesh faces opposite direction (180° offset)
-		DesiredRot.Roll = -CurrentRoll;
-SetActorRotation(DesiredRot);
-
-}
-// Log once per second
+if (bRisersConnected)
+{
+	UpdateWingPositionFromLines(PawnFwd, LiftN, DragN, LineLength, WeightShiftCGOffset);
+}// Log once per second
 	FlightLogTimer += DeltaTime;
 if (FlightLogTimer > 1.0f)	{
 		FlightLogTimer = 0.0f;
@@ -1423,4 +1274,140 @@ float AWingActor::ComputeThermalLiftMs(float AltitudeM) const
 		ThermalLiftMs *= FMath::Max(0.0f, 1.0f - (AltitudeM - 200.0f) / 800.0f);
 
 	return ThermalLiftMs;
+}
+bool AWingActor::HandleLanding(ACharacter* Char, float DeltaTime, FVector& NewVel, float TotalMassKg)
+{
+	FVector PawnLoc = Char->GetActorLocation();
+	float GZ = GetGroundZ(PawnLoc);
+	if (PawnLoc.Z > GZ + 1.0f || NewVel.Z >= 0.0f)
+		return false;  // Not touching ground or moving up
+
+	// === GROUND CONTACT (real collision response) ===
+	float LandingSpeedMs = -NewVel.Z / 100.0f;
+
+	// Injury check
+	AParamotorCharacter* ParamotorChar = Cast<AParamotorCharacter>(Char);
+	if (ParamotorChar && LandingSpeedMs > 3.0f)
+		ParamotorChar->ApplyImpactInjury(LandingSpeedMs, false);
+
+	// Vertical collision response: no bounce (pilot's legs absorb the impact)
+	NewVel.Z = 0.0f;
+
+	// Ground friction: horizontal velocity decays from ground contact
+	float FrictionCoeff = 0.4f;  // Rubber soles on grass
+	float LandingHorizSpeed = FMath::Sqrt(NewVel.X * NewVel.X + NewVel.Y * NewVel.Y);
+	float CollisionDurationS = 0.1f;  // Leg impact absorption time
+	float DecelForce = TotalMassKg * LandingSpeedMs / CollisionDurationS;
+	float NormalForce = TotalMassKg * 9.81f + DecelForce;
+	float FrictionDecel = FrictionCoeff * NormalForce * DeltaTime * 100.0f;
+	if (LandingHorizSpeed > 0.0f)
+	{
+		float FrictionFactor = FMath::Max(0.0f, 1.0f - FrictionDecel / LandingHorizSpeed);
+		NewVel.X *= FrictionFactor;
+		NewVel.Y *= FrictionFactor;
+	}
+
+	// Reset flight state on landing
+	bIsAirborne = false;
+	Char->GetCharacterMovement()->GravityScale = 1.0f;
+	Char->GetCharacterMovement()->AirControl = 0.05f;
+	Char->GetCharacterMovement()->MaxAcceleration = 2048.0f;
+	Char->bUseControllerRotationYaw = true;
+	Char->GetCharacterMovement()->bOrientRotationToMovement = false;
+	Char->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+
+	// Reset pendulum, pitch, and collapse states
+	PendulumAngle = 0.0f;
+	PendulumAngularVel = 0.0f;
+	PrevThrottleAmount = ThrottleAmount;
+	ThrottleRate = 0.0f;
+	PilotPitch = 0.0f;
+	PilotPitchTarget = 0.0f;
+	bSeated = false;
+	bAutoSeatPending = false;
+	LaunchTimer = 0.0f;
+	LaunchAngleOffset = 0.0f;
+	SeatTransition = 0.0f;
+	DragReductionFromSeat = 0.0f;
+	HangPointOffset = 0.0f;
+	WingPitchAngle = 0.0f;
+	WingPitchRate = 0.0f;
+	WingRollRate = 0.0f;
+	WingYawRate = 0.0f;
+	CurrentRoll = 0.0f;
+	PilotRollAngle = 0.0f;
+	PilotRollRate = 0.0f;
+	EffectiveLeftBrake = 0.0f;
+	EffectiveRightBrake = 0.0f;
+	LeftCollapseAmount = 0.0f;
+	RightCollapseAmount = 0.0f;
+	FrontalCollapseAmount = 0.0f;
+	bInParachutalStall = false;
+	ParachutalStallTimer = 0.0f;
+	PropTorqueRoll = 0.0f;
+	SpiralDiveFactor = 0.0f;
+	DutchRollYaw = 0.0f;
+	DutchRollRoll = 0.0f;
+	DutchRollPhase = 0.0f;
+	TrimmerPosition = 0.0f;
+	TrimmerTarget = 0.0f;
+
+	if (NewVel.Size2D() < 100.0f)
+	{
+		WingState = EWingState::Inflated;
+		UE_LOG(LogTemp, Warning, TEXT("WingActor: Landed - back to inflated/ground"));
+	}
+	return true;
+}
+void AWingActor::UpdateWingPositionFromLines(const FVector& PawnFwd, float LiftN, float DragN, float LineLength, float WeightShiftCGOffsetM)
+{
+	// The wing is connected to the pilot by rigid 7m lines.
+	// Positioned INSTANTLY at the correct position - not lerped.
+	FVector CarabMid = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
+	FVector PawnFwd2D = FVector(PawnFwd.X, PawnFwd.Y, 0.0f).GetSafeNormal();
+	FVector PawnRight2D = FVector::CrossProduct(FVector::UpVector, PawnFwd2D).GetSafeNormal();
+
+	float HeightAboveCarab = LINE_LENGTH_CM;
+	float PendulumBackOffset = FMath::Sin(PendulumAngle) * LineLength;
+	float DragBackOffset = FMath::Atan(DragN / FMath::Max(1.0f, LiftN)) * LineLength;
+	float WeightShiftLateral = -WeightShift * WeightShiftCGOffsetM * CM_PER_M;
+	float RollDifferenceDeg = CurrentRoll - PilotRollAngle;
+	float RollPendulumLateral = FMath::Sin(RollDifferenceDeg * PI / 180.0f) * LineLength;
+
+	FVector DesiredWingPos = CarabMid
+		+ FVector(0, 0, HeightAboveCarab)
+		- PawnFwd2D * (DragBackOffset + PendulumBackOffset)
+		+ PawnRight2D * (WeightShiftLateral + RollPendulumLateral);
+
+	FVector CurrentPos = GetActorLocation();
+	FVector Shift = DesiredWingPos - CurrentPos;
+	SetActorLocation(DesiredWingPos, false);
+
+	for (int32 i = 0; i < Particles.Num(); i++)
+	{
+		if (!Particles[i].bPinned && !Particles[i].bGrabbed)
+		{
+			Particles[i].Pos += Shift;
+			Particles[i].OldPos += Shift;
+		}
+	}
+	for (int32 i = 0; i < LineParticles.Num(); i++)
+	{
+		if (!LineParticles[i].bPinned)
+		{
+			LineParticles[i].Pos += Shift;
+			LineParticles[i].OldPos += Shift;
+		}
+	}
+
+	FVector ToWing = GetActorLocation() - CarabMid;
+	ToWing.Z = 0.0f;
+	FRotator DesiredRot;
+	if (ToWing.Size() > LineLength * 0.05f)
+		DesiredRot.Yaw = FMath::Atan2(ToWing.Y, ToWing.X) * 180.0f / PI + 180.0f;
+	else
+		DesiredRot.Yaw = FMath::Atan2(PawnFwd.Y, PawnFwd.X) * 180.0f / PI + 180.0f;
+	DesiredRot.Pitch = WingPitchAngle;
+	DesiredRot.Roll = -CurrentRoll;
+	SetActorRotation(DesiredRot);
 }

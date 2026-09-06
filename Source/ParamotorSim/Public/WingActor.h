@@ -684,6 +684,10 @@ protected:
 	// === FLIGHT PHYSICS HELPERS (split from UpdateFlight) ===
 	// Compute thermal lift (m/s) at current position and altitude
 	float ComputeThermalLiftMs(float AltitudeM) const;
+	// Handle ground collision/landing — returns true if landed
+	bool HandleLanding(ACharacter* Char, float DeltaTime, FVector& NewVel, float TotalMassKg);
+	// Update wing position from rigid line constraint (called each flight tick)
+	void UpdateWingPositionFromLines(const FVector& PawnFwd, float LiftN, float DragN, float LineLength, float WeightShiftCGOffsetM);
 
 	// Shift all particles by a world-space delta (used when moving the actor)
 	void ShiftAllParticles(FVector Shift);
