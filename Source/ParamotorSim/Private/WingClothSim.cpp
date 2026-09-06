@@ -1115,7 +1115,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 				WingState = EWingState::Inflated;
 				InflationProgress = 1.0f;
 				SetInflatedShape();
-				UE_LOG(LogTemp, Warning, TEXT("WingActor: Wing INFLATED! fill=%.0f%% h=%.0fcm"), CellFillFactor * 100, InflationHeight);
+				UE_LOG(LogTemp, Warning, TEXT("WingActor: Wing INFLATED! fill=%.0f%% h=%.0fcm"), CellFillFactor * PERCENT_FACTOR, InflationHeight);
 				// Initial overshoot: wing shoots forward slightly (apply impulse to WingVel)
 				WingVel += PilotFwdDir * 150.0f;
 				KitePitchOvershoot = 10.0f;
@@ -1150,7 +1150,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 				WingState = EWingState::Inflating;
 				InflationProgress = CellFillFactor;
 				ALineFadeFactor = 0.0f;
-				UE_LOG(LogTemp, Warning, TEXT("WingActor: Deflating — back to Inflating (fill=%.0f%% h=%.0fcm)"), CellFillFactor * 100, HeightAboveCarab);
+				UE_LOG(LogTemp, Warning, TEXT("WingActor: Deflating — back to Inflating (fill=%.0f%% h=%.0fcm)"), CellFillFactor * PERCENT_FACTOR, HeightAboveCarab);
 			}
 			// If wing falls to near ground with low fill, transition to Connected
 			if (CellFillFactor < 0.05f && HeightAboveGround < 50.0f)

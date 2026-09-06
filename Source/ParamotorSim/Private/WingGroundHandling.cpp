@@ -233,7 +233,7 @@ DebugWeightSupport = FMath::Clamp(WeightSupport, 0.0f, 1.0f);
 
 if (GroundLogTimer > 0.2f)				{
 					GroundLogTimer = 0.0f;
-UE_LOG(LogTemp, Warning, TEXT("GRUN: air=%.1fmph grd=%.1fmph wnd=%.1fmph(±%.1f) need=%.1fmph thr=%.2f support=%.0f%% skipZ=%.0f hops=%d ge=%.2f"),						AirspeedMph, GroundSpeedMph, CurrentWindSpeed * MPH_PER_MS, GustAmplitude * MPH_PER_MS,						TakeoffSpeedMs * MPH_PER_MS, ThrottleAmount,						WeightSupport  * CM_PER_M, TakeoffSkipZ, TakeoffFootContacts, GroundEffectDragFactor);
+UE_LOG(LogTemp, Warning, TEXT("GRUN: air=%.1fmph grd=%.1fmph wnd=%.1fmph(±%.1f) need=%.1fmph thr=%.2f support=%.0f%% skipZ=%.0f hops=%d ge=%.2f"),						AirspeedMph, GroundSpeedMph, CurrentWindSpeed * MPH_PER_MS, GustAmplitude * MPH_PER_MS,						TakeoffSpeedMs * MPH_PER_MS, ThrottleAmount,						WeightSupport * PERCENT_FACTOR, TakeoffSkipZ, TakeoffFootContacts, GroundEffectDragFactor);
 }
 				// === NATURAL TAKEOFF ===
 		// Takeoff is a physical transition, not a timer:
@@ -303,7 +303,7 @@ EffectiveRightBrake = 0.0f;
 PilotRollAngle = 0.0f;
 PilotRollRate = 0.0f;
 
-UE_LOG(LogTemp, Warning, TEXT("WingActor: TAKEOFF! air=%.1fmph grd=%.1fmph thr=%.2f support=%.0f%% wind=%.1fmph hops=%d"),						AirspeedMph, GroundSpeedMph, ThrottleAmount,						WeightSupport  * CM_PER_M, CurrentWindSpeed * MPH_PER_MS, TakeoffFootContacts);
+UE_LOG(LogTemp, Warning, TEXT("WingActor: TAKEOFF! air=%.1fmph grd=%.1fmph thr=%.2f support=%.0f%% wind=%.1fmph hops=%d"),						AirspeedMph, GroundSpeedMph, ThrottleAmount,						WeightSupport * PERCENT_FACTOR, CurrentWindSpeed * MPH_PER_MS, TakeoffFootContacts);
 }
 }
 }
@@ -399,7 +399,7 @@ void AWingActor::UpdateKitingCollapses(float DeltaTime, const FVector& PilotFwd2
 			if (CollapseAmt > 0.01f)
 			{
 				UE_LOG(LogTemp, Warning, TEXT("WingActor: KITING ASYMMETRIC RIGHT COLLAPSE %.0f%%! wind=%.1f turb=%.2f resist=%.2f"),
-					CollapseAmt  * CM_PER_M, CurrentWindSpeed, WindTurbulence, CollapseResistance);
+					CollapseAmt * PERCENT_FACTOR, CurrentWindSpeed, WindTurbulence, CollapseResistance);
 			}
 		}
 		else
@@ -408,7 +408,7 @@ void AWingActor::UpdateKitingCollapses(float DeltaTime, const FVector& PilotFwd2
 			if (CollapseAmt > 0.01f)
 			{
 				UE_LOG(LogTemp, Warning, TEXT("WingActor: KITING ASYMMETRIC LEFT COLLAPSE %.0f%%! wind=%.1f turb=%.2f resist=%.2f"),
-					CollapseAmt  * CM_PER_M, CurrentWindSpeed, WindTurbulence, CollapseResistance);
+					CollapseAmt * PERCENT_FACTOR, CurrentWindSpeed, WindTurbulence, CollapseResistance);
 			}
 		}
 	}
@@ -457,7 +457,7 @@ float SpeedFactor = FMath::Clamp(CurrentAirspeed / TakeoffSpeed, 0.0f, 1.5f);
 // Throttle factor: need at least 25% throttle
 float ThrottleFactor = (ThrottleAmount > 0.25f) ? 1.0f : ThrottleAmount / 0.25f;
 // Combined chance
-float Chance = WeightFactor * SpeedFactor * ThrottleFactor  * CM_PER_M;
+float Chance = WeightFactor * SpeedFactor * ThrottleFactor * PERCENT_FACTOR;
 return FMath::Clamp(Chance, 0.0f, 100.0f);
 }
 

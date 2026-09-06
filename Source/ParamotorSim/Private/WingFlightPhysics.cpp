@@ -70,7 +70,7 @@ ClimbRate = Vel.Z;
 		FlightGustAmp = CachedGameInstance->WindGusts;
 	UpdateDynamicWind(DeltaTime, FlightGustAmp);
 FVector ShiftedWindDirFlight = WindDirection.RotateAngleAxis(WindDirShift * 180.0f / PI, FVector(0, 0, 1));
-FVector Wind = ShiftedWindDirFlight * CurrentWindSpeed * 100.0f;
+FVector Wind = ShiftedWindDirFlight * CurrentWindSpeed  * CM_PER_M;
 // Apparent wind = true wind - velocity (wind the wing feels)
 FVector ApparentWind = Wind - Vel;
 // === HORIZONTAL AIRSPEED (for lift) ===
@@ -116,7 +116,7 @@ float WindRefHeight = 10.0f;  // Standard reference height
 float HeightRatio = FMath::Max(0.01f, AltitudeM / WindRefHeight);
 float WindGradientFactor = FMath::Pow(HeightRatio, WindGradientAlpha);
 float AltitudeWindSpeed = CurrentWindSpeed * WindGradientFactor;
-FVector AltitudeWind = ShiftedWindDirFlight * AltitudeWindSpeed * 100.0f;
+FVector AltitudeWind = ShiftedWindDirFlight * AltitudeWindSpeed  * CM_PER_M;
 // === TURBULENCE — add to freestream velocity, not as fake acceleration ===
 // The von Kármán states are turbulent VELOCITY variations (m/s).
 // Correct physics: add them to the wind vector, then compute apparent wind.
@@ -126,7 +126,7 @@ float TurbStrength = FMath::Abs(TurbLongState) + FMath::Abs(TurbLatState) + FMat
 FVector TurbulenceVelocity = (ShiftedWindDirFlight * TurbLongState  // Along wind
                             + FVector::CrossProduct(FVector::UpVector, ShiftedWindDirFlight).GetSafeNormal() * TurbLatState  // Crosswind
                             + FVector::UpVector * TurbVertState)     // Vertical
-                            * 100.0f;  // m/s → cm/s
+                             * CM_PER_M;  // m/s → cm/s
 // No altitude mixing scale — the Dryden scale length already grows with
 // altitude, which increases turbulence magnitude naturally. No double-scaling.
 // Add turbulent velocity to wind before computing apparent wind
@@ -149,7 +149,7 @@ UpdateCellPressure(DeltaTime, Vms, EffectiveLeftBrake, EffectiveRightBrake);
 // === THERMALS (buoyancy-based updraft model) ===
 float ThermalLiftMs = ComputeThermalLiftMs(AltitudeM);
 // Apply thermal lift as additional vertical air velocity (not acceleration)
-ApparentWind.Z += ThermalLiftMs * 100.0f;  // m/s to cm/s vertical air movement
+ApparentWind.Z += ThermalLiftMs  * CM_PER_M;  // m/s to cm/s vertical air movement
 // Per-side AoA: base cruise + effective brake (with lag) + turbulence
 // Vertical turbulence changes AoA — TurbVertState is in m/s, convert to AoA:
 // ΔAoA ≈ atan(ΔV_vert / V_airspeed) ≈ ΔV_vert / V (small angle)
@@ -501,10 +501,10 @@ float LineYoungsModulus = 5.0e9f;       // Pa (nylon/Dyneema blend)
 float LineLengthM = LINE_LENGTH_CM / 100.0f;
 float LineStiffnessNPerM = LineCrossSectionArea * LineYoungsModulus / LineLengthM;  // N/m
 float BaseLineLengthCm = LINE_LENGTH_CM;
-LineStretchA = (LineTensionA / LineStiffnessNPerM) * 100.0f;  // cm
-LineStretchB = (LineTensionB / LineStiffnessNPerM) * 100.0f;
-LineStretchC = (LineTensionC / LineStiffnessNPerM) * 100.0f;
-LineStretchD = (LineTensionD / LineStiffnessNPerM) * 100.0f;
+LineStretchA = (LineTensionA / LineStiffnessNPerM)  * CM_PER_M;  // cm
+LineStretchB = (LineTensionB / LineStiffnessNPerM)  * CM_PER_M;
+LineStretchC = (LineTensionC / LineStiffnessNPerM)  * CM_PER_M;
+LineStretchD = (LineTensionD / LineStiffnessNPerM)  * CM_PER_M;
 // A lines stretch most → leading edge drops slightly → AoA increases slightly
 // This is a real effect: under high load, the wing's AoA increases from line stretch
 // (Note: this effect is small, ~0.1-0.3° at normal loads, and is already implicitly
@@ -643,7 +643,7 @@ float PendulumDriveAccel = ThrustAccel / LineLength;
 // Brake drag also swings pilot forward (wing slows, pilot keeps going)
 // Use total wing drag minus pilot drag (the wing-only drag swings the pilot)
 float WingOnlyDragN = LeftDragN + RightDragN;
-float PendulumBrakeAccel = (WingOnlyDragN / TotalMassKg) * 100.0f / LineLength;
+float PendulumBrakeAccel = (WingOnlyDragN / TotalMassKg)  * CM_PER_M / LineLength;
 
 // Gravity restoring force: -ω² * θ
 // Damping: -2 * ζ * ω * θ̇
@@ -775,7 +775,7 @@ float YawRate = FMath::Clamp(WingYawRate, -360.0f, 360.0f);  // NaN safety only
 // Coordinated turn: equilibrium bank for current yaw rate
 // tan(bank) = V × yaw_rate / g (real centripetal balance)
 float VmsFlight = HorizSpeed / 100.0f;
-float TargetBank = (VmsFlight > 0.5f) ? FMath::Atan(VmsFlight * 100.0f * YawRate * PI / 180.0f / GravityAccel) * 180.0f / PI : 0.0f;
+float TargetBank = (VmsFlight > 0.5f) ? FMath::Atan(VmsFlight  * CM_PER_M * YawRate * PI / 180.0f / GravityAccel) * 180.0f / PI : 0.0f;
 // No clamp - bank limited by line geometry and collapse physics
 // Roll moments (all in N·m):
 // 1. Weight shift gravity moment (WeightShiftRollMoment, computed above)
@@ -899,7 +899,7 @@ WingPitchAngle += WingPitchRate * DeltaTime;
 	// Force from lateral gust (linearized): F = ρ × V_steady × V_turb × S × CD
 	// Angular accel: α = F / (m × L)
 	float TurbLatForce = 0.5f * Rho * FMath::Max(0.1f, Vms) * FMath::Abs(TurbLatState) * 2.0f * PilotDragArea * CDPilot;
-	float TurbLatAccel = TurbLatForce / TotalMassKg * 100.0f;  // cm/s²
+	float TurbLatAccel = TurbLatForce / TotalMassKg  * CM_PER_M;  // cm/s²
 	float TurbRollAccelDeg = (TurbLatAccel / LineLength) * 180.0f / PI;
 
 	// Wing roll rate effect on pilot: when the wing banks, the pilot's pendulum
@@ -1093,7 +1093,7 @@ if (bRisersConnected)
 if (FlightLogTimer > 1.0f)	{
 		FlightLogTimer = 0.0f;
 UE_LOG(LogTemp, Warning, TEXT("WingActor: FLIGHT speed=%.1f mph climb=%.0f fpm alt=%.0fm pend=%.1f° pitch=%.0f° wpitch=%.1f° thrust=%.0f yaw=%.1f bank=%.1f proll=%.1f L=%.2f R=%.2f brakeL=%.1f brakeR=%.1f wshift=%.2f turb=%.1f trim=%.1f spiral=%.0f%% wl=%.1f | LineTension A=%.0f B=%.0f C=%.0f D=%.0f N stretchA=%.2fcm"),			Airspeed / 100.0f * MPH_PER_MS, ClimbRate / 100.0f * 196.85f, AltitudeM,			PendulumAngle * 180.0f / PI, PilotPitch, WingPitchAngle, ThrustAccel, YawRate, CurrentRoll,
-			PilotRollAngle,			LeftCL, RightCL, EffectiveLeftBrake, EffectiveRightBrake, WeightShift, TurbStrength,			TrimSpeedMs * MPH_PER_MS, SpiralDiveFactor * 100, WingLoading,
+			PilotRollAngle,			LeftCL, RightCL, EffectiveLeftBrake, EffectiveRightBrake, WeightShift, TurbStrength,			TrimSpeedMs * MPH_PER_MS, SpiralDiveFactor * PERCENT_FACTOR, WingLoading,
 			LineTensionA, LineTensionB, LineTensionC, LineTensionD, LineStretchA);
 }
 }
@@ -1276,7 +1276,7 @@ bool AWingActor::HandleLanding(ACharacter* Char, float DeltaTime, FVector& NewVe
 	float CollisionDurationS = 0.1f;  // Leg impact absorption time
 	float DecelForce = TotalMassKg * LandingSpeedMs / CollisionDurationS;
 	float NormalForce = TotalMassKg * GRAVITY_MS2 + DecelForce;
-	float FrictionDecel = FrictionCoeff * NormalForce * DeltaTime * 100.0f;
+	float FrictionDecel = FrictionCoeff * NormalForce * DeltaTime  * CM_PER_M;
 	if (LandingHorizSpeed > 0.0f)
 	{
 		float FrictionFactor = FMath::Max(0.0f, 1.0f - FrictionDecel / LandingHorizSpeed);
