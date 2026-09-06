@@ -1062,30 +1062,7 @@ if (!FMath::IsFinite(NewVel.X) || !FMath::IsFinite(NewVel.Y) || !FMath::IsFinite
 		UE_LOG(LogTemp, Error, TEXT("WingActor: NaN NewVel — aborting"));
 return;
 }
-	// === SPEED LIMITS ===
-	// The primary speed limiter is now the AoA-based collapse:
-	// As speed increases above trim, AoA drops. At ~2x trim, AoA goes negative
-	// and the wing collapses (loses lift, huge drag increase). This is how
-	// real paragliders work — the wing collapses before it can overspeed.
-	// The hard caps below are just safety nets for NaN/frame spike protection.
-	float NewHorizSpeed = FVector(NewVel.X, NewVel.Y, 0.0f).Size();
-	// Hard horizontal cap at 20 m/s (45 mph) — only reached if collapse fails
-// === SAFETY NETS (not physics — prevent NaN/frame spike explosions) ===
-// Real limits come from the drag polar, collapse physics, and thrust curve.
-	const float MAX_HORIZ_SPEED_CM_S = 2000.0f;  // 20 m/s — drag polar prevents reaching this
-	if (NewHorizSpeed > MAX_HORIZ_SPEED_CM_S)
-	{
-		float Scale = MAX_HORIZ_SPEED_CM_S / NewHorizSpeed;
-		NewVel.X *= Scale;
-		NewVel.Y *= Scale;
-	}
-	// Total speed safety cap (prevents NaN/explosion from frame spikes)
-	if (NewVel.Size() > 2500.0f)
-		NewVel = NewVel.GetSafeNormal() * 2500.0f;
-// Vertical safety caps — NaN/explosion protection only (well beyond physical limits)
-// Real limits: max climb ~10 m/s (full power), max sink ~50 m/s (spiral dive terminal)
-if (NewVel.Z > 2000.0f) NewVel.Z = 2000.0f;    // 20 m/s climb — NaN protection only
-if (NewVel.Z < -10000.0f) NewVel.Z = -10000.0f; // 100 m/s sink — NaN protection only
+	ApplyVelocitySafetyCaps(NewVel);
 // === GROUND COLLISION / LANDING ===
 HandleLanding(Char, DeltaTime, NewVel, TotalMassKg);
 // === MOVE PILOT — direct actor movement, bypassing CMC ===
@@ -1410,4 +1387,23 @@ void AWingActor::UpdateWingPositionFromLines(const FVector& PawnFwd, float LiftN
 	DesiredRot.Pitch = WingPitchAngle;
 	DesiredRot.Roll = -CurrentRoll;
 	SetActorRotation(DesiredRot);
+}
+void AWingActor::ApplyVelocitySafetyCaps(FVector& NewVel)
+{
+	// Safety nets — NaN/explosion protection only (well beyond physical limits)
+	// Real limits come from the drag polar, collapse physics, and thrust curve
+	float NewHorizSpeed = FVector(NewVel.X, NewVel.Y, 0.0f).Size();
+	const float MAX_HORIZ_SPEED_CM_S = 2000.0f;  // 20 m/s — drag polar prevents reaching this
+	if (NewHorizSpeed > MAX_HORIZ_SPEED_CM_S)
+	{
+		float Scale = MAX_HORIZ_SPEED_CM_S / NewHorizSpeed;
+		NewVel.X *= Scale;
+		NewVel.Y *= Scale;
+	}
+	// Total speed safety cap (prevents NaN/explosion from frame spikes)
+	if (NewVel.Size() > 2500.0f)
+		NewVel = NewVel.GetSafeNormal() * 2500.0f;
+	// Vertical safety caps
+	if (NewVel.Z > 2000.0f) NewVel.Z = 2000.0f;    // 20 m/s climb
+	if (NewVel.Z < -10000.0f) NewVel.Z = -10000.0f; // 100 m/s sink
 }

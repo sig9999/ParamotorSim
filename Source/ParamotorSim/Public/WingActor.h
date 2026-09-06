@@ -688,6 +688,8 @@ protected:
 	bool HandleLanding(ACharacter* Char, float DeltaTime, FVector& NewVel, float TotalMassKg);
 	// Update wing position from rigid line constraint (called each flight tick)
 	void UpdateWingPositionFromLines(const FVector& PawnFwd, float LiftN, float DragN, float LineLength, float WeightShiftCGOffsetM);
+	// Apply velocity safety caps (NaN/explosion protection only)
+	void ApplyVelocitySafetyCaps(FVector& NewVel);
 
 	// Shift all particles by a world-space delta (used when moving the actor)
 	void ShiftAllParticles(FVector Shift);
