@@ -331,6 +331,9 @@ void AParamotorCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	// Cache frequently accessed pointers for this tick
+	UCharacterMovementComponent* CMC = GetCharacterMovement();
+
 	// === INJURY HEALING ===
 	// Injuries gradually heal over time. Applied before fall handling so
 	// movement penalties are available in the get-up-from-fall section.
@@ -382,8 +385,8 @@ void AParamotorCharacter::Tick(float DeltaTime)
 				TripRiskAccumulator = 0.0f;
 				if (GetCharacterMovement())
 				{
-					GetCharacterMovement()->SetMovementMode(MOVE_Walking);
-					GetCharacterMovement()->MaxWalkSpeed = EffectiveMaxSpeed;
+					CMC->SetMovementMode(MOVE_Walking);
+					CMC->MaxWalkSpeed = EffectiveMaxSpeed;
 				}
 				GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, -90.0f));
 				FQuat FinalBaseQuat(FVector::UpVector, FMath::DegreesToRadians(-90.0f));
@@ -436,7 +439,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 	//
 	// Thrust: ~75kgf (736N) at full throttle (Vittorazi Moster 185)
 	// Pilot + gear: ~100-120kg
-	bool bOnGround = GetCharacterMovement()->IsMovingOnGround();
+	bool bOnGround = CMC->IsMovingOnGround();
 	bool bThrustActive = !bIsFallen && CurrentThrust > 0.01f;
 
 	// Cache controller for wing state checks
@@ -448,7 +451,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 	};
 
 	// Detect if player is providing movement input (pressing W/A/S/D)
-	FVector CurrentAccel = GetCharacterMovement()->GetCurrentAcceleration();
+	FVector CurrentAccel = CMC->GetCurrentAcceleration();
 	bool bHasMovementInput = CurrentAccel.Size2D() > 1.0f;
 
 	// Track if player was genuinely airborne while thrust was active (not just bouncing)
@@ -506,7 +509,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			float PilotLegPowerW = 350.0f;
 			// PilotWeight (set by PlayerController) already includes paramotor + fuel mass.
 			// Only add wing + lines (not already in PilotWeight).
-			float CharMassForRun = GetCharacterMovement()->Mass;
+			float CharMassForRun = CMC->Mass;
 			if (CharMassForRun <= 0.0f) CharMassForRun = 100.0f;
 			float TotalMass = CharMassForRun + 7.5f;  // +wing(6kg) + lines(1.5kg) approx
 			float RollingMu = 0.4f;  // Rubber soles on grass (consistent with WingGroundHandling)
@@ -516,11 +519,11 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			const float MaxRunSpeed = MaxRunSpeedMs  * CM_PER_M;  // cm/s
 
 			// Allow speed to build up to the max running speed
-			GetCharacterMovement()->MaxWalkSpeed = MaxRunSpeed;
+			CMC->MaxWalkSpeed = MaxRunSpeed;
 
 			// Slightly reduce braking so thrust can build speed
-			GetCharacterMovement()->BrakingDecelerationWalking = 100.0f;
-			GetCharacterMovement()->GroundFriction = 4.0f;
+			CMC->BrakingDecelerationWalking = 100.0f;
+			CMC->GroundFriction = 4.0f;
 
 			// Apply thrust as forward acceleration (F=ma → Δv = F/m * Δt)
 			// Always use real thrust from ParamotorActor (blade element theory)
@@ -531,7 +534,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 				ThrustForceN = PC->GetSpawnedParamotorActor()->GetThrustForceN(AirspeedMs);
 			}
 			float ThrustForceUE = ThrustForceN * CM_PER_M;
-			float CharMass = GetCharacterMovement()->Mass;
+			float CharMass = CMC->Mass;
 			if (CharMass <= 0.0f) CharMass = 100.0f;
 			float Accel = ThrustForceUE / CharMass;
 
@@ -573,16 +576,16 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			{
 				NewVel.Z = CurrentVel.Z;
 			}
-			GetCharacterMovement()->Velocity = NewVel;
+			CMC->Velocity = NewVel;
 		}
 		else
 		{
 			// === STANDING STILL + THRUST: feet planted, NO movement ===
 			// Ground friction holds the character in place.
 			// Just lean forward to brace. Trip risk handles knockover.
-			GetCharacterMovement()->MaxWalkSpeed = EffectiveMaxSpeed;
-			GetCharacterMovement()->BrakingDecelerationWalking = 300.0f;
-			GetCharacterMovement()->GroundFriction = 8.0f;
+			CMC->MaxWalkSpeed = EffectiveMaxSpeed;
+			CMC->BrakingDecelerationWalking = 300.0f;
+			CMC->GroundFriction = 8.0f;
 			// Do NOT modify velocity — feet are planted on the ground
 		}
 	}
@@ -590,9 +593,9 @@ void AParamotorCharacter::Tick(float DeltaTime)
 	{
 		// No thrust: normal movement
 		bWasInAirWithThrust = false;
-		GetCharacterMovement()->MaxWalkSpeed = EffectiveMaxSpeed;
-		GetCharacterMovement()->BrakingDecelerationWalking = 300.0f;
-		GetCharacterMovement()->GroundFriction = 8.0f;
+		CMC->MaxWalkSpeed = EffectiveMaxSpeed;
+		CMC->BrakingDecelerationWalking = 300.0f;
+		CMC->GroundFriction = 8.0f;
 	}
 
 	// === WIND DRAG ON INFLATED WING ===
@@ -635,7 +638,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			ThrustForceN = PC->GetSpawnedParamotorActor()->GetThrustForceN(AirspeedMs);
 		}
 		float ThrustForceUE = ThrustForceN  * CM_PER_M;
-		float CharMass = GetCharacterMovement()->Mass;
+		float CharMass = CMC->Mass;
 		if (CharMass <= 0.0f) CharMass = 100.0f;
 		float Accel = ThrustForceUE / CharMass;
 
@@ -648,7 +651,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 		FVector CurrentVel = GetVelocity();
 		FVector NewVel = CurrentVel + ThrustVel;
 		NewVel.Z = CurrentVel.Z; // Don't affect vertical when falling
-		GetCharacterMovement()->Velocity = NewVel;
+		CMC->Velocity = NewVel;
 	}
 
 	// === Posture: lean forward from thrust, straighten when moving ===
@@ -665,7 +668,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			// h = prop height above feet (~1.5m), d = CG offset from feet (~0.3m)
 			float ThrustHeightM = 1.5f;
 			float CGOffsetM = 0.3f;
-			float CharMass = FMath::Max(50.0f, GetCharacterMovement()->Mass);
+			float CharMass = FMath::Max(50.0f, CMC->Mass);
 			float ThrustN = 0.0f;
 			if (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped())
 			{
@@ -760,7 +763,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 	UpdateBrakeArmIK(DeltaTime);
 
 	// === Footstep audio ===
-	bool bIsMoving = SmoothedAnimSpeed > 20.0f && GetCharacterMovement()->IsMovingOnGround();
+	bool bIsMoving = SmoothedAnimSpeed > 20.0f && CMC->IsMovingOnGround();
 
 	if (bIsMoving)
 	{
@@ -801,7 +804,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 	// Once the wing is inflated and supporting weight, tripping is very rare
 	// Pilot balance recovery rate (physical: human recovers balance in ~0.67s)
 	const float BalanceRecoveryRate = 1.5f;  // 1/τ where τ ≈ 0.67s
-	if (CurrentThrust > 0.1f && GetCharacterMovement()->IsMovingOnGround())
+	if (CurrentThrust > 0.1f && CMC->IsMovingOnGround())
 	{
 		float GroundSpeed = FVector(GetVelocity().X, GetVelocity().Y, 0.0f).Size();
 
@@ -837,7 +840,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 		// Recovery: if M_weight > M_thrust, the pilot recovers balance.
 		float ThrustHeightM = 1.5f;  // Prop height above feet
 		float FootOffsetM = 0.15f;   // Base CG-to-foot horizontal distance
-		float PilotMassKg = FMath::Max(50.0f, GetCharacterMovement()->Mass);  // From CMC mass
+		float PilotMassKg = FMath::Max(50.0f, CMC->Mass);  // From CMC mass
 		// Use real thrust from paramotor actor
 		float ThrustForceN = 0.0f;
 		if (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped())
