@@ -522,7 +522,7 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 	// ============================================================
 	// Altitude (cm -> ft)
 	// ============================================================
-	float AltM = Pawn->GetActorLocation().Z / 100.0f;
+	float AltM = Pawn->GetActorLocation().Z  / CM_PER_M;
 	float AltFt = AltM * 3.28084f;
 	if (AltitudeValue)
 		AltitudeValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f ft"), AltFt)));
@@ -530,14 +530,14 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 	// ============================================================
 	// Speed (cm/s -> mph)
 	// ============================================================
-	float SpdMph = Pawn->GetVelocity().Size() / 100.0f * MPH_PER_MS;
+	float SpdMph = Pawn->GetVelocity().Size()  / CM_PER_M * MPH_PER_MS;
 	if (SpeedValue)
 		SpeedValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f mph"), SpdMph)));
 
 	// ============================================================
 	// Vertical speed (m/s -> fpm)
 	// ============================================================
-	float VSpd = Pawn->GetVelocity().Z / 100.0f;
+	float VSpd = Pawn->GetVelocity().Z  / CM_PER_M;
 	float VSpdFpm = VSpd * 196.8504f;  // m/s to feet/min
 	if (VSpeedValue)
 	{
@@ -673,7 +673,7 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 
 		// Throttle
 		if (ThrottleValue)
-			ThrottleValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f%%"), Thr * 100.0f)));
+			ThrottleValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f%%"), Thr * PERCENT_FACTOR)));
 		if (ThrottleBar)
 			ThrottleBar->SetPercent(Thr);
 
@@ -709,7 +709,7 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 		if (FuelValue)
 		{
 			if (Fuel > 0.0f)
-				FuelValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f%%"), Fuel * 100.0f)));
+				FuelValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f%%"), Fuel * PERCENT_FACTOR)));
 			else
 				FuelValue->SetText(FText::FromString(TEXT("EMPTY")));
 		}
@@ -779,7 +779,7 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 		{
 			if (WState == EWingState::Flying)
 			{
-				float PendDeg = Wing->GetPendulumAngle() * 180.0f / PI;
+				float PendDeg = Wing->GetPendulumAngle() * RAD_TO_DEG;
 				PendulumValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f\x00B0"), PendDeg)));
 				// Color: green near neutral, yellow at extremes, red at very extreme
 				FLinearColor PendColor = CLR_TEXT;
@@ -802,7 +802,7 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 			APawn* P = PC->GetPawn();
 			ACharacter* C = Cast<ACharacter>(P);
 			if (C) GravScale = C->GetCharacterMovement()->GravityScale;
-			float WtSupport = (1.0f - GravScale) * 100.0f;
+			float WtSupport = (1.0f - GravScale) * PERCENT_FACTOR;
 			if (WState == EWingState::Inflated)
 			{
 				WeightSupportValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f%%"), WtSupport)));
@@ -887,7 +887,7 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 				float headMph = Wing->GetDebugHeadwind() * MPH_PER_MS;
 				float threshMph = Wing->GetDebugTakeoffThreshold() * MPH_PER_MS;
 				float thr = Wing->GetDebugThrottle();
-				float support = Wing->GetDebugWeightSupport() * 100.0f;
+				float support = Wing->GetDebugWeightSupport() * PERCENT_FACTOR;
 				bool bCanTakeoff = (Wing->GetDebugGroundAirspeed() > Wing->GetDebugTakeoffThreshold() && thr > 0.15f)
 					|| (Wing->GetDebugWeightSupport() > 0.75f && thr > 0.15f && Wing->GetDebugGroundAirspeed() > 2.0f);
 				FString DbgStr = FString::Printf(TEXT("AIR:%.0f GRD:%.0f WND:%.0f NEED:%.0f THR:%.2f WT:%.0f%% %s"),
@@ -930,7 +930,7 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 			else InjuryColor = CLR_VALUE_WARN;
 
 			InjuryStatusValue->SetText(FText::FromString(
-				FString::Printf(TEXT("INJURY: %s (%d%%)"), *InjuryName, FMath::RoundToInt(Severity * 100.0f))));
+				FString::Printf(TEXT("INJURY: %s (%d%%)"), *InjuryName, FMath::RoundToInt(Severity * PERCENT_FACTOR))));
 			InjuryStatusValue->SetColorAndOpacity(FSlateColor(InjuryColor));
 			InjuryStatusValue->SetVisibility(ESlateVisibility::Visible);
 		}
@@ -970,7 +970,7 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 			}
 
 			TrimmerStatusValue->SetText(FText::FromString(
-				FString::Printf(TEXT("TRIM: %s  [%s]  %+.0f%%"), *Label, *Bar, Pos * 100.0f)));
+				FString::Printf(TEXT("TRIM: %s  [%s]  %+.0f%%"), *Label, *Bar, Pos * PERCENT_FACTOR)));
 			TrimmerStatusValue->SetColorAndOpacity(FSlateColor(TrimColor));
 			TrimmerStatusValue->SetVisibility(ESlateVisibility::Visible);
 		}
@@ -985,8 +985,8 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 			FString SeatStr = Wing->IsSeated() ? TEXT("SEATED") : TEXT("STANDING");
 			float HangPt = Wing->GetHangPointOffset();
 			FString HangStr;
-			if (HangPt > 0.1f) HangStr = FString::Printf(TEXT("LEAN FWD %+.0f%%"), HangPt * 100.0f);
-			else if (HangPt < -0.1f) HangStr = FString::Printf(TEXT("LEAN BACK %+.0f%%"), HangPt * 100.0f);
+			if (HangPt > 0.1f) HangStr = FString::Printf(TEXT("LEAN FWD %+.0f%%"), HangPt * PERCENT_FACTOR);
+			else if (HangPt < -0.1f) HangStr = FString::Printf(TEXT("LEAN BACK %+.0f%%"), HangPt * PERCENT_FACTOR);
 			else HangStr = TEXT("NEUTRAL");
 
 			if (TrimmerStatusValue)

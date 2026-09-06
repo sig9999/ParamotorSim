@@ -244,7 +244,7 @@ PilotFwd.Normalize();
 	// Upwind = -WindDirection.
 	// Wing +X points downwind = WindDirection.
 	// Yaw for +X pointing in WindDirection = atan2(WindDir.Y, WindDir.X)
-	WingGroundYaw = FMath::Atan2(WindDirection.Y, WindDirection.X) * 180.0f / PI;
+	WingGroundYaw = FMath::Atan2(WindDirection.Y, WindDirection.X) * RAD_TO_DEG;
 	WingGroundYawRate = 0.0f;
 	WingGroundVel = FVector::ZeroVector;
 	KiteYawDrift = 0.0f;
@@ -293,7 +293,7 @@ for (const auto& P : Particles)	{
 		MinY = FMath::Min(MinY, P.Pos.Y);
 MaxY = FMath::Max(MaxY, P.Pos.Y);
 }
-	float WingSpanCm = FMath::Sqrt(WingModel.WingArea * WingModel.AR) * 100.0f;
+	float WingSpanCm = FMath::Sqrt(WingModel.WingArea * WingModel.AR)  * CM_PER_M;
 	return FMath::Clamp((MaxY - MinY) / WingSpanCm, 0.0f, 1.0f);
 }
 
@@ -491,7 +491,7 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
     FVector WindDir2D = WindDirection;
     WindDir2D.Z = 0.0f;
     WindDir2D.Normalize();
-    float WindYaw = FMath::Atan2(WindDir2D.Y, WindDir2D.X) * 180.0f / PI;
+    float WindYaw = FMath::Atan2(WindDir2D.Y, WindDir2D.X) * RAD_TO_DEG;
 
     // For Inflating/Inflated states, KiteYawDrift is updated by the kiting physics
     // in SimulateCloth. It's an offset from the wind-direction base.
@@ -514,8 +514,8 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
 
         // Weathervane moment from crosswind component on the wing body
         // C_N_beta ≈ 0.05 per radian for paraglider (same as kiting physics)
-        float WeathervaneMoment = 0.05f * DynPressure * WingModel.WingArea * WingspanM * FMath::Sin(YawError * PI / 180.0f);
-        float WeathervaneAccel = (WingInertiaYaw > 0.1f) ? WeathervaneMoment / WingInertiaYaw * 180.0f / PI : 0.0f;
+        float WeathervaneMoment = 0.05f * DynPressure * WingModel.WingArea * WingspanM * FMath::Sin(YawError * PI_DIV_180);
+        float WeathervaneAccel = (WingInertiaYaw > 0.1f) ? WeathervaneMoment / WingInertiaYaw * RAD_TO_DEG : 0.0f;
 
         // Aerodynamic yaw damping: c_yaw = 0.5 × ρ × V × S × b² / I_yaw
         // Same formula as kiting physics (WingClothSim.cpp line 842)
@@ -547,7 +547,7 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
     if (ToWingDist > LINE_LENGTH_CM * 0.1f)
     {
         float BlendWeight = FMath::Clamp((ToWingDist - LINE_LENGTH_CM * 0.1f) / (LINE_LENGTH_CM * 0.3f), 0.0f, 0.5f);
-        float ToWingYaw = FMath::Atan2(ToWing.Y, ToWing.X) * 180.0f / PI;
+        float ToWingYaw = FMath::Atan2(ToWing.Y, ToWing.X) * RAD_TO_DEG;
         float YawDiff = ToWingYaw - WingGroundYaw;
         while (YawDiff > 180.0f) YawDiff -= 360.0f;
         while (YawDiff < -180.0f) YawDiff += 360.0f;
@@ -570,7 +570,7 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
         float HeightAboveCarabPitch = FMath::Max(0.0f, ToWingPitch.Z);
         float PendAnglePitch = FMath::Atan2(HorizDistPitch, FMath::Max(1.0f, HeightAboveCarabPitch));
         // Pitch from pendulum angle: 0° flat → -90° upright
-        DesiredPitch = -(PI/2.0f - PendAnglePitch) * 180.0f / PI;
+        DesiredPitch = -(PI/2.0f - PendAnglePitch) * RAD_TO_DEG;
         // A-line pull lifts the leading edge — real physics
         // When pilot pulls A-risers, the LE is physically lifted up.
         // This angles the intakes into the wind, which is what causes inflation.
