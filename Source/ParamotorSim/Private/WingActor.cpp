@@ -1,4 +1,4 @@
-#include "WingActor.h"
+﻿#include "WingActor.h"
 #include "ParamotorActor.h"
 #include "ParamotorCharacter.h"
 #include "ParamotorGameInstance.h"
@@ -286,21 +286,6 @@ void AWingActor::UpdateCarabinerPositions(FVector LeftCarabiner, FVector RightCa
 RightCarabinerPos = RightCarabiner;
 }
 
-float AWingActor::GetSpreadPercent() const{
-	if (Particles.Num() == 0) return 0.0f;
-float MinY = 1e9, MaxY = -1e9;
-for (const auto& P : Particles)	{
-		MinY = FMath::Min(MinY, P.Pos.Y);
-MaxY = FMath::Max(MaxY, P.Pos.Y);
-}
-	float WingSpanCm = FMath::Sqrt(WingModel.WingArea * WingModel.AR)  * CM_PER_M;
-	return FMath::Clamp((MaxY - MinY) / WingSpanCm, 0.0f, 1.0f);
-}
-
-bool AWingActor::IsMostlySpread() const {
- return GetSpreadPercent() > 0.6f;
-}
-
 float AWingActor::GetGroundZ(FVector Pos) const{
 	if (!GetWorld()) return 0.0f;
 FHitResult Hit;
@@ -332,26 +317,6 @@ float AWingActor::GetCachedGroundZ(FVector Pos)
 // ============================================================
 // COMMON HELPERS — extracted from duplicated code across functions
 // ============================================================
-
-AWingActor::FPilotFrame AWingActor::GetPilotFrame() const
-{
-	FPilotFrame Frame;
-	if (!ConnectedParamotor) return Frame;
-	APawn* Pawn = Cast<APawn>(ConnectedParamotor->GetAttachParentActor());
-	if (!Pawn) return Frame;
-
-	Frame.Velocity = Pawn->GetVelocity();
-	Frame.Forward = Pawn->GetActorForwardVector();
-	Frame.Forward.Z = 0;
-	Frame.Forward.Normalize();
-	Frame.Right = Pawn->GetActorRightVector();
-	Frame.Right.Z = 0;
-	Frame.Right.Normalize();
-	FVector HorizVel(Frame.Velocity.X, Frame.Velocity.Y, 0.0f);
-	Frame.SpeedMs = HorizVel.Size() / CM_PER_M;
-	Frame.bValid = true;
-	return Frame;
-}
 
 void AWingActor::UpdateDynamicWind(float DeltaTime, float GustAmplitude)
 {

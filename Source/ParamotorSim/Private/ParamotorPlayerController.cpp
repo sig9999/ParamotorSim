@@ -820,20 +820,6 @@ void AParamotorPlayerController::SpawnWing()
 	SpawnWingByModel(CurrentWingModelIndex);
 }
 
-void AParamotorPlayerController::GetWingModelSpecs(int32 Index, FString& OutName, float& OutArea, float& OutMaxWeight) const
-{
-	switch (Index)
-	{
-	case 0:  OutName = TEXT("Sig 16"); OutArea = 16.0f; OutMaxWeight = 85.0f;  break;
-	case 1:  OutName = TEXT("Sig 20"); OutArea = 20.0f; OutMaxWeight = 110.0f; break;
-	case 2:  OutName = TEXT("Sig 22"); OutArea = 22.0f; OutMaxWeight = 120.0f; break;
-	case 3:  OutName = TEXT("Sig 25"); OutArea = 25.0f; OutMaxWeight = 130.0f; break;
-	case 4:  OutName = TEXT("Sig 30"); OutArea = 30.0f; OutMaxWeight = 160.0f; break;
-	case 5:  OutName = TEXT("Sig 35"); OutArea = 35.0f; OutMaxWeight = 180.0f; break;
-	default: OutName = TEXT("Sig 25"); OutArea = 25.0f; OutMaxWeight = 130.0f; break;
-	}
-}
-
 void AParamotorPlayerController::SpawnWingByModel(int32 ModelIndex)
 {
 	APawn* MyPawn = GetPawn();

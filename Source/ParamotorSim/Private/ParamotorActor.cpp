@@ -695,15 +695,6 @@ void AParamotorActor::SetThrottle(float NewThrottle)
 	}
 }
 
-void AParamotorActor::PlayWingInflate()
-{
-	if (WingInflateAudio)
-	{
-		WingInflateAudio->Play();
-		UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Playing wing inflation sound"));
-	}
-}
-
 // ============================================================
 // REAL PROPULSION API
 // Based on propeller momentum theory and Moster 185 specifications

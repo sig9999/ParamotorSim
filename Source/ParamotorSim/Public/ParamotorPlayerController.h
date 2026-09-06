@@ -42,9 +42,6 @@ public:
 	int32 GetCurrentWingModelIndex() const { return CurrentWingModelIndex; }
 	const TArray<FString>& GetWingModelNames() const { return WingModelNames; }
 
-	/** Get wing model specs for display (area, max weight) */
-	void GetWingModelSpecs(int32 Index, FString& OutName, float& OutArea, float& OutMaxWeight) const;
-
 	/** Clear all spawned actors (paramotor, wing, mesh parts) */
 	UFUNCTION(BlueprintCallable, Category = "Spawn")
 	void ClearSpawnedActors();

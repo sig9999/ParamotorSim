@@ -61,9 +61,6 @@ public:
 	// Get propeller absorbed torque in N·m (from blade element theory)
 	float GetPropTorqueNM(float AirspeedMs = 0.0f) const;
 
-	// Wing inflation - plays the crispy fabric inflation sound
-	void PlayWingInflate();
-
 	// Get world-space carabiner positions from the wing clip rings on the frame
 	// Returns false if the rings can't be found (falls back to estimated position)
 	bool GetCarabinerWorldPositions(FVector& OutLeft, FVector& OutRight) const;

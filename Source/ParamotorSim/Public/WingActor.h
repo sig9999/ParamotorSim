@@ -262,9 +262,6 @@ public:
 	FVector GetLeftBrakeHandleWorldPos() const;
 	FVector GetRightBrakeHandleWorldPos() const;
 
-	bool IsMostlySpread() const;
-	float GetSpreadPercent() const;
-
 	bool IsInBag() const { return WingState == EWingState::InBag; }
 	bool IsCrinkled() const { return WingState == EWingState::Crinkled; }
 	bool IsSpread() const { return WingState == EWingState::Spread; }
@@ -661,18 +658,6 @@ protected:
 	// Cached ground Z — call once per tick, then use the cached value
 	float GetCachedGroundZ(FVector Pos);
 	void InvalidateGroundZCache() { bGroundZCachedThisTick = false; }
-
-	// === COMMON HELPERS (extracted from duplicated code) ===
-	// Get pilot forward/right vectors and velocity from connected paramotor
-	struct FPilotFrame
-	{
-		FVector Forward = FVector::ForwardVector;
-		FVector Right = FVector::RightVector;
-		FVector Velocity = FVector::ZeroVector;
-		float SpeedMs = 0.0f;  // Horizontal speed in m/s
-		bool bValid = false;
-	};
-	FPilotFrame GetPilotFrame() const;
 
 	// Update dynamic wind (gusts, turbulence, direction shift) — called from both ground and flight
 	void UpdateDynamicWind(float DeltaTime, float GustAmplitude);
