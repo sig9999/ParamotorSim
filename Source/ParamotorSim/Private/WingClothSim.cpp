@@ -865,8 +865,6 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 	// F = 0.5 × ρ × V² × S_stalled × CD_bluff, CD_bluff ≈ 1.0
 		KiteLeftDrag += KiteLeftStall * 0.5f * Rho * ApparentWindMs * ApparentWindMs * WingModel.WingArea * 0.5f * 1.0f;
 		KiteRightDrag += KiteRightStall * 0.5f * Rho * ApparentWindMs * ApparentWindMs * WingModel.WingArea * 0.5f * 1.0f;
-		KiteLeftLift = GetLeftCellLiftN() * (1.0f - KiteLeftStall);  // Stalled area = no lift
-		KiteRightLift = GetRightCellLiftN() * (1.0f - KiteRightStall);
 
 		float DragDiffN = KiteRightDrag - KiteLeftDrag;
 		float YawMoment = DragDiffN * (WingspanM * 0.5f);
@@ -1079,7 +1077,6 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 					// Cells nearly empty AND wing is low — lose inflation
 					WingState = EWingState::Connected;
 					InflationHeight = 0.0f;
-					InflationVelocity = 0.0f;
 					CellFillFactor = 0.0f;
 					ALineFadeFactor = 0.0f;
 					WingGroundVel = WingVel;  // Transfer velocity for continuity
@@ -1127,7 +1124,6 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 				FVector::DotProduct(HorizOffset, PilotRightYaw),
 				0.0f
 			);
-			KiteVelocity = WingVel;
 
 			// Cell deflation when apparent wind is too low
 			if (ApparentWindMs < 2.0f)
@@ -1149,7 +1145,6 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 			{
 				WingState = EWingState::Connected;
 				InflationHeight = 0.0f;
-				InflationVelocity = 0.0f;
 				CellFillFactor = 0.0f;
 				ALineFadeFactor = 0.0f;
 				WingGroundVel = WingVel;

@@ -163,7 +163,6 @@ PendulumAngularVel = 0.0f;  // Start at rest
 PilotRollAngle = 0.0f;
 PilotRollRate = 0.0f;
 PrevThrottleAmount = ThrottleAmount;
-ThrottleRate = 0.0f;
 FlightTime = 0.0f;
 PilotPitch = 0.0f;
 PilotPitchTarget = -75.0f;

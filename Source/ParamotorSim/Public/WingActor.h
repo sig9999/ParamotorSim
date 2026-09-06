@@ -232,7 +232,6 @@ public:
 
 	// Flight — set by controller each frame
 	void SetThrottle(float T) { ThrottleAmount = FMath::Clamp(T, 0.0f, 1.0f); }
-	void SetPilotVelocity(FVector V) { PilotVelocity = V; }
 	void PumpBrakes();  // Quick brake pump to help open canopy
 	float GetAirspeed() const { return Airspeed; }
 	float GetClimbRate() const { return ClimbRate; }
@@ -290,9 +289,7 @@ protected:
 	// Inflation state
 	bool bLiftingALines = false;
 	float InflationProgress = 0.0f;
-	float InflationMomentum = 0.0f;
 	float InflationHeight = 0.0f;  // Current height of canopy during inflation (cm)
-	float InflationVelocity = 0.0f;  // Vertical velocity during inflation rise (cm/s)
 	float CellFillFactor = 0.0f;   // 0=empty cells, 1=fully inflated (ram-air pressure)
 	float ALineFadeFactor = 0.0f;  // Fades A-line pull after inflation (1=full pull, 0=none)
 
@@ -323,10 +320,7 @@ protected:
 	// When inflated, the wing is a kite — wind pushes it around.
 	// The pilot must actively manage it with brakes and body positioning.
 	FVector KiteOffset = FVector::ZeroVector;      // Offset from directly above carabiner
-	FVector KiteVelocity = FVector::ZeroVector;     // Kite drift velocity (cm/s)
 	float KitePitchOvershoot = 0.0f;                // Pitch overshoot during inflation
-	float KiteSinkHeight = 0.0f;                   // Height reduction from insufficient wind (cm)
-	float KiteVerticalVel = 0.0f;                  // Vertical velocity of wing during kiting (cm/s)
 	float KiteYawDrift = 0.0f;                      // Yaw drift from wind/turbulence (offset from wind-direction base)
 	float KiteYawVel = 0.0f;                        // Yaw drift velocity
 	float KiteRollSmoothed = 0.0f;                  // Smoothed roll for kiting (emerges from yaw, not direct brake)
@@ -354,13 +348,8 @@ protected:
 	// - Wind affects each half independently (causes wandering)
 	float KiteLeftStall = 0.0f;      // 0=flying, 1=fully stalled (left half)
 	float KiteRightStall = 0.0f;     // 0=flying, 1=fully stalled (right half)
-	float KiteLeftLift = 0.0f;       // Current lift on left half (Newtons)
-	float KiteRightLift = 0.0f;      // Current lift on right half (Newtons)
 	float KiteLeftDrag = 0.0f;       // Current drag on left half (Newtons)
 	float KiteRightDrag = 0.0f;      // Current drag on right half (Newtons)
-	// Per-side wind perturbation (each half sees slightly different wind)
-	float KiteLeftWindPerturb = 0.0f;
-	float KiteRightWindPerturb = 0.0f;
 
 	// === REAL LINE TENSION PER GROUP ===
 	// In a real paraglider, the A/B/C/D lines carry different loads.
@@ -371,14 +360,11 @@ protected:
 	float LineTensionB = 0.0f;    // Tension in B lines (Newtons)
 	float LineTensionC = 0.0f;    // Tension in C lines (Newtons)
 	float LineTensionD = 0.0f;    // Tension in D lines (Newtons)
-	float LineTensionBrake = 0.0f; // Tension in brake lines (Newtons, only when pulled)
 	// Overall line tension fraction (0 = slack, 1 = taut at line length)
 	// Drives canopy shape: no tension = parachute billow, full tension = airfoil
 	float LineTensionFraction = 0.0f;
 	// Line stretch from tension (cm) — A lines stretch most
 	float LineStretchA = 0.0f;
-	float LineStretchB = 0.0f;
-	float LineStretchC = 0.0f;
 	float LineStretchD = 0.0f;
 	FVector PrevPilotVel = FVector::ZeroVector;     // Previous frame pilot velocity (for inertial lag)
 
@@ -397,7 +383,6 @@ protected:
 	float RollDebugTimer = 0.0f;  // Flight physics roll debug timer
 	float CurrentRoll = 0.0f;  // Smoothed roll for flight steering
 	float CanopyOpenness = 0.0f;  // 0=crinkled, 1=fully open. Increased by brake pumping.
-	float BrakePumpBoost = 0.0f;  // Temporary lift boost from brake pumping (decays over time)
 
 	// Flight state
 	bool bIsAirborne = false;          // True once pilot leaves ground
@@ -406,8 +391,6 @@ protected:
 	float GlideRatio = 0.0f;           // Current L/D glide ratio
 	float ThrottleAmount = 0.0f;       // 0-1, set by controller
 	float PrevThrottleAmount = 0.0f;   // Previous frame throttle (for rate-of-change)
-	float ThrottleRate = 0.0f;         // Throttle change rate (per second), for pendulum impulse
-	FVector PilotVelocity = FVector::ZeroVector;  // Pilot velocity from controller
 	float WeightShift = 0.0f;          // -1=left, 0=center, +1=right (from mouse look)
 
 	// Pendulum physics — pilot swings under wing when feet leave ground
@@ -464,17 +447,11 @@ protected:
 	bool bInParachutalStall = false;
 	float ParachutalStallTimer = 0.0f;
 
-	// === PROPELLER TORQUE EFFECT ===
-	// The spinning propeller creates torque that rolls the pilot slightly.
-	// This is a constant force when the engine is running.
-	float PropTorqueRoll = 0.0f;       // Smoothed torque-induced roll
-
 	// === DUTCH ROLL ===
 	// Real paragliders have a gentle side-to-side yaw-roll oscillation mode.
 	// The wing yaws slightly, then rolls, then yaws back. This is part of the "feel".
 	float DutchRollYaw = 0.0f;         // Current Dutch roll yaw offset (deg)
 	float DutchRollRoll = 0.0f;        // Current Dutch roll roll offset (deg)
-	float DutchRollPhase = 0.0f;       // Phase for Dutch roll oscillation
 
 	// === SPIRAL DIVE ===
 	// When banked steeply (>40°), the spiral wants to increase on its own.
@@ -511,7 +488,6 @@ protected:
 	// === TURBULENCE IN FLIGHT ===
 	// Real air has turbulence that bumps the wing around in flight.
 	FVector FlightTurbulence = FVector::ZeroVector; // Random turbulence force
-	float FlightTurbPhase = 0.0f;      // Phase for turbulence oscillation
 
 	// Brake state
 	float LeftBrakeAmount = 0.0f;

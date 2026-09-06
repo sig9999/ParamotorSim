@@ -630,7 +630,6 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 
 			// Send throttle and velocity for flight physics
 			SpawnedWingActor->SetThrottle(SpawnedParamotorActor ? SpawnedParamotorActor->GetThrottle() : 0.0f);
-			SpawnedWingActor->SetPilotVelocity(Char3->GetVelocity());
 
 			// Set weight shift active when flying (mouse look = weight shift, not yaw)
 			Char3->bWeightShiftActive = SpawnedWingActor->IsFlying();

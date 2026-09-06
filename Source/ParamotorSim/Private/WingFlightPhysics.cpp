@@ -488,7 +488,6 @@ LineTensionC = TotalLoadN * LoadFractionC;
 LineTensionD = TotalLoadN * LoadFractionD;
 // Brake line tension: only when brakes are pulled
 // Brake line force = pilot's pull force (~50N at full brake, real measurement)
-	LineTensionBrake = TotalBrake * 50.0f;
 // === LINE STRETCH (real material physics) ===
 // Real line stretch: ΔL = F·L / (A·E)
 // where F = tension (N), L = line length (m), A = cross-section area (m²),
@@ -502,8 +501,6 @@ float LineLengthM = LINE_LENGTH_CM  / CM_PER_M;
 float LineStiffnessNPerM = LineCrossSectionArea * LineYoungsModulus / LineLengthM;  // N/m
 float BaseLineLengthCm = LINE_LENGTH_CM;
 LineStretchA = (LineTensionA / LineStiffnessNPerM)  * CM_PER_M;  // cm
-LineStretchB = (LineTensionB / LineStiffnessNPerM)  * CM_PER_M;
-LineStretchC = (LineTensionC / LineStiffnessNPerM)  * CM_PER_M;
 LineStretchD = (LineTensionD / LineStiffnessNPerM)  * CM_PER_M;
 // A lines stretch most → leading edge drops slightly → AoA increases slightly
 // This is a real effect: under high load, the wing's AoA increases from line stretch
@@ -634,7 +631,6 @@ float PendulumOmegaSq = PendulumOmega * PendulumOmega;
 // === THROTTLE RATE TRACKING (for logging only) ===
 float ThrottleDelta = ThrottleAmount - PrevThrottleAmount;
 PrevThrottleAmount = ThrottleAmount;
-ThrottleRate = ThrottleDelta / FMath::Max(DeltaTime, 0.001f);
 
 // Thrust creates angular acceleration on the pendulum (pushes pilot forward)
 // Real physics: α = a_thrust / L (torque = F×L, α = τ/(m×L²) = F/(m×L) = a/L)
@@ -812,7 +808,6 @@ CurrentRoll += WingRollRate * DeltaTime;
 CurrentRoll = FMath::Clamp(CurrentRoll, -180.0f, 180.0f);  // NaN safety only
 // For debug/HUD compatibility
 float TargetRoll = TargetBank;
-PropTorqueRoll = PropTorqueNM;
 // === SPIRAL DIVE INSTABILITY ===
 // Real danger: when banked steeply (>40°), the spiral wants to INCREASE on its own.
 // The wing dives steeper → speeds up → banks more → dives steeper → ...
@@ -1297,7 +1292,6 @@ bool AWingActor::HandleLanding(ACharacter* Char, float DeltaTime, FVector& NewVe
 	PendulumAngle = 0.0f;
 	PendulumAngularVel = 0.0f;
 	PrevThrottleAmount = ThrottleAmount;
-	ThrottleRate = 0.0f;
 	PilotPitch = 0.0f;
 	PilotPitchTarget = 0.0f;
 	bSeated = false;
@@ -1321,11 +1315,9 @@ bool AWingActor::HandleLanding(ACharacter* Char, float DeltaTime, FVector& NewVe
 	FrontalCollapseAmount = 0.0f;
 	bInParachutalStall = false;
 	ParachutalStallTimer = 0.0f;
-	PropTorqueRoll = 0.0f;
 	SpiralDiveFactor = 0.0f;
 	DutchRollYaw = 0.0f;
 	DutchRollRoll = 0.0f;
-	DutchRollPhase = 0.0f;
 	TrimmerPosition = 0.0f;
 	TrimmerTarget = 0.0f;
 

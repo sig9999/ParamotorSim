@@ -28,14 +28,9 @@ void AWingActor::UpdateInflation(float DeltaTime){
 		if (bLiftingALines)		{
 			WingState = EWingState::Inflating;
 			InflationProgress = 0.0f;
-			InflationMomentum = 0.0f;
 			InflationHeight = 0.0f;
-			InflationVelocity = 0.0f;
 			CellFillFactor = 0.0f;
 			KiteOffset = FVector::ZeroVector;
-			KiteVelocity = FVector::ZeroVector;
-			KiteSinkHeight = 0.0f;
-			KiteVerticalVel = 0.0f;
 			KiteYawDrift = 0.0f;
 			KiteYawVel = 0.0f;
 			KiteLeftStall = 0.0f;
@@ -281,7 +276,6 @@ Char->GetCharacterMovement()->Velocity = FlightVel;
 					PendulumAngle = 0.0f;
 PendulumAngularVel = 0.0f;  // Start at rest
 PrevThrottleAmount = ThrottleAmount;
-ThrottleRate = 0.0f;
 FlightTime = 0.0f;
 PilotPitch = 0.0f;
 PilotPitchTarget = 0.0f;  // Start upright — auto-transitions to seated after launch
