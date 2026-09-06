@@ -32,6 +32,7 @@ protected:
 	// Stats
 	UPROPERTY() UTextBlock* AltitudeValue;
 	UPROPERTY() UTextBlock* SpeedValue;
+	UPROPERTY() UTextBlock* AirspeedValue;     // Airspeed (through-air, not ground speed)
 	UPROPERTY() UTextBlock* VSpeedValue;
 	UPROPERTY() UTextBlock* TempValue;
 	UPROPERTY() UTextBlock* WindSpeedValue;
@@ -53,6 +54,11 @@ protected:
 
 	// Wing panel
 	UPROPERTY() UTextBlock* WingStateText;
+	UPROPERTY() UTextBlock* WingModelText;      // Wing model name (e.g. "Sig 25")
+	UPROPERTY() UTextBlock* BrakeLeftValue;     // Left brake input 0-100%
+	UPROPERTY() UTextBlock* BrakeRightValue;    // Right brake input 0-100%
+	UPROPERTY() UTextBlock* InflationProgressValue; // Inflation progress 0-100%
+	UPROPERTY() UProgressBar* InflationProgressBar;
 	UPROPERTY() UTextBlock* PendulumValue;
 	UPROPERTY() UTextBlock* WeightSupportValue;
 	UPROPERTY() UTextBlock* GlideRatioValue;

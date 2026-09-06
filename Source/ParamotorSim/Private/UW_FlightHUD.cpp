@@ -189,7 +189,7 @@ void UUW_FlightHUD::NativeOnInitialized()
 	{
 		S->SetAnchors(FAnchors(1.0f, 0.0f, 1.0f, 0.0f));
 		S->SetPosition(FVector2D(-240.0f, 15.0f));
-		S->SetSize(FVector2D(225.0f, 280.0f));
+		S->SetSize(FVector2D(225.0f, 305.0f));
 	}
 
 	UVerticalBox* FlightVBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("FlightVBox"));
@@ -238,6 +238,7 @@ void UUW_FlightHUD::NativeOnInitialized()
 
 	AddStatRow(FlightVBox, TEXT("ALT"), AltitudeValue, 16);
 	AddStatRow(FlightVBox, TEXT("SPD"), SpeedValue, 16);
+	AddStatRow(FlightVBox, TEXT("AIR"), AirspeedValue, 14);
 	AddStatRow(FlightVBox, TEXT("VSI"), VSpeedValue, 14);
 	AddStatRow(FlightVBox, TEXT("TMP"), TempValue, 13);
 	AddStatRow(FlightVBox, TEXT("WND"), WindSpeedValue, 13);
@@ -321,8 +322,8 @@ void UUW_FlightHUD::NativeOnInitialized()
 	if (UCanvasPanelSlot* S = Cast<UCanvasPanelSlot>(WingPanel->Slot))
 	{
 		S->SetAnchors(FAnchors(0.0f, 1.0f, 0.0f, 1.0f));
-		S->SetPosition(FVector2D(15.0f, -560.0f));
-		S->SetSize(FVector2D(260.0f, 270.0f));
+		S->SetPosition(FVector2D(15.0f, -625.0f));
+		S->SetSize(FVector2D(260.0f, 335.0f));
 	}
 
 	UVerticalBox* WingVBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("WingVBox"));
@@ -352,6 +353,52 @@ void UUW_FlightHUD::NativeOnInitialized()
 		HS->SetVerticalAlignment(VAlign_Center);
 	}
 	AddToVBox(WingVBox, WingHeaderRow, 6.0f);
+
+	// Wing model name (shown below header)
+	WingModelText = MakeText(TEXT("WingModel"), TEXT(""), 10, FSlateColor(CLR_TEXT_DIM));
+	WingModelText->SetJustification(ETextJustify::Right);
+	AddToVBox(WingVBox, WingModelText, 4.0f);
+
+	// Brake inputs (L/R) — fundamental paraglider control display
+	UHorizontalBox* BrakeRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("BrakeRow"));
+	UTextBlock* BrakeLbl = MakeText(TEXT("BrakeLbl"), TEXT("BRK"), 9, FSlateColor(CLR_TEXT_LABEL));
+	BrakeRow->AddChild(BrakeLbl);
+	if (UHorizontalBoxSlot* HS = Cast<UHorizontalBoxSlot>(BrakeLbl->Slot))
+	{
+		HS->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		HS->SetPadding(FMargin(0.0f, 0.0f, 4.0f, 0.0f));
+		HS->SetVerticalAlignment(VAlign_Center);
+	}
+	BrakeLeftValue = MakeText(TEXT("BrakeL"), TEXT("L:0%"), 11, FSlateColor(CLR_TEXT_DIM));
+	BrakeLeftValue->SetJustification(ETextJustify::Left);
+	BrakeRow->AddChild(BrakeLeftValue);
+	if (UHorizontalBoxSlot* HS = Cast<UHorizontalBoxSlot>(BrakeLeftValue->Slot))
+	{
+		HS->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		HS->SetPadding(FMargin(0.0f, 0.0f, 8.0f, 0.0f));
+		HS->SetVerticalAlignment(VAlign_Center);
+	}
+	BrakeRightValue = MakeText(TEXT("BrakeR"), TEXT("R:0%"), 11, FSlateColor(CLR_TEXT_DIM));
+	BrakeRightValue->SetJustification(ETextJustify::Right);
+	BrakeRow->AddChild(BrakeRightValue);
+	if (UHorizontalBoxSlot* HS = Cast<UHorizontalBoxSlot>(BrakeRightValue->Slot))
+	{
+		HS->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		HS->SetVerticalAlignment(VAlign_Center);
+	}
+	AddToVBox(WingVBox, BrakeRow, 4.0f);
+
+	// Inflation progress (hidden by default, shown during inflation)
+	InflationProgressValue = MakeText(TEXT("InflatProg"), TEXT(""), 10, FSlateColor(CLR_VALUE_WARN));
+	InflationProgressValue->SetJustification(ETextJustify::Left);
+	InflationProgressValue->SetVisibility(ESlateVisibility::Collapsed);
+	AddToVBox(WingVBox, InflationProgressValue, 2.0f);
+
+	InflationProgressBar = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), TEXT("InflatBar"));
+	InflationProgressBar->SetPercent(0.0f);
+	InflationProgressBar->SetFillColorAndOpacity(CLR_VALUE_WARN);
+	InflationProgressBar->SetVisibility(ESlateVisibility::Collapsed);
+	AddToVBox(WingVBox, InflationProgressBar, 6.0f);
 
 	// Glide ratio + takeoff chance
 	AddStatRow(WingVBox, TEXT("L/D"), GlideRatioValue, 14);
@@ -528,11 +575,37 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 		AltitudeValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f ft"), AltFt)));
 
 	// ============================================================
-	// Speed (cm/s -> mph)
+	// Speed (cm/s -> mph) — ground speed
 	// ============================================================
 	float SpdMph = Pawn->GetVelocity().Size()  / CM_PER_M * MPH_PER_MS;
 	if (SpeedValue)
 		SpeedValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f mph"), SpdMph)));
+
+	// ============================================================
+	// Airspeed (through-air speed, from wing actor) — critical for stall awareness
+	// ============================================================
+	if (AirspeedValue)
+	{
+		AParamotorPlayerController* AirPC = Cast<AParamotorPlayerController>(PC);
+		AWingActor* AirWing = AirPC ? AirPC->SpawnedWingActor : nullptr;
+		if (AirWing && (AirWing->IsFlying() || AirWing->IsInflated()))
+		{
+			float AirMs = AirWing->GetAirspeed() / CM_PER_M;
+			float AirMph = AirMs * MPH_PER_MS;
+			AirspeedValue->SetText(FText::FromString(FString::Printf(TEXT("%.0f mph"), AirMph)));
+			// Color: green at safe speed, yellow near stall, red at stall
+			FLinearColor AirColor = CLR_TEXT;
+			if (AirMs < 4.0f) AirColor = CLR_VALUE_BAD;       // Below min takeoff airspeed
+			else if (AirMs < 6.0f) AirColor = CLR_VALUE_WARN;  // Marginal
+			else AirColor = CLR_VALUE_GOOD;
+			AirspeedValue->SetColorAndOpacity(FSlateColor(AirColor));
+		}
+		else
+		{
+			AirspeedValue->SetText(FText::FromString(TEXT("--")));
+			AirspeedValue->SetColorAndOpacity(FSlateColor(CLR_TEXT_DIM));
+		}
+	}
 
 	// ============================================================
 	// Vertical speed (m/s -> fpm)
@@ -774,6 +847,57 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 			WingStateText->SetColorAndOpacity(FSlateColor(WStateColor));
 		}
 
+		// Wing model name
+		if (WingModelText)
+		{
+			if (ParamotorPC)
+			{
+				const TArray<FString>& ModelNames = ParamotorPC->GetWingModelNames();
+				int32 ModelIdx = ParamotorPC->GetCurrentWingModelIndex();
+				if (ModelNames.IsValidIndex(ModelIdx))
+					WingModelText->SetText(FText::FromString(ModelNames[ModelIdx]));
+				else
+					WingModelText->SetText(FText::FromString(TEXT("")));
+			}
+		}
+
+		// Brake inputs (L/R) — fundamental paraglider control
+		if (BrakeLeftValue && BrakeRightValue)
+		{
+			float LBrake = Wing->GetLeftBrakeAmount() * PERCENT_FACTOR;
+			float RBrake = Wing->GetRightBrakeAmount() * PERCENT_FACTOR;
+			BrakeLeftValue->SetText(FText::FromString(FString::Printf(TEXT("L:%.0f%%"), LBrake)));
+			BrakeRightValue->SetText(FText::FromString(FString::Printf(TEXT("R:%.0f%%"), RBrake)));
+			// Color: dim when no brake, highlight when active
+			FLinearColor LColor = (LBrake > 1.0f) ? CLR_HIGHLIGHT : CLR_TEXT_DIM;
+			FLinearColor RColor = (RBrake > 1.0f) ? CLR_HIGHLIGHT : CLR_TEXT_DIM;
+			BrakeLeftValue->SetColorAndOpacity(FSlateColor(LColor));
+			BrakeRightValue->SetColorAndOpacity(FSlateColor(RColor));
+		}
+
+		// Inflation progress (shown during inflation phase)
+		if (InflationProgressValue && InflationProgressBar)
+		{
+			if (WState == EWingState::Inflating || WState == EWingState::Inflated)
+			{
+				float Progress = Wing->GetInflationProgress() * PERCENT_FACTOR;
+				InflationProgressValue->SetText(FText::FromString(
+					FString::Printf(TEXT("INFLATING: %.0f%%"), Progress)));
+				InflationProgressValue->SetVisibility(ESlateVisibility::Visible);
+				InflationProgressBar->SetPercent(FMath::Clamp(Progress / 100.0f, 0.0f, 1.0f));
+				InflationProgressBar->SetVisibility(ESlateVisibility::Visible);
+				// Color: warning during inflation, good when complete
+				FLinearColor ProgColor = (Progress > 80.0f) ? CLR_VALUE_GOOD : CLR_VALUE_WARN;
+				InflationProgressValue->SetColorAndOpacity(FSlateColor(ProgColor));
+				InflationProgressBar->SetFillColorAndOpacity(ProgColor);
+			}
+			else
+			{
+				InflationProgressValue->SetVisibility(ESlateVisibility::Collapsed);
+				InflationProgressBar->SetVisibility(ESlateVisibility::Collapsed);
+			}
+		}
+
 		// Pendulum angle (only meaningful in flight)
 		if (PendulumValue)
 		{
@@ -906,6 +1030,11 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 	else
 	{
 		if (WingStateText) WingStateText->SetText(FText::FromString(TEXT("NONE")));
+		if (WingModelText) WingModelText->SetText(FText::FromString(TEXT("")));
+		if (BrakeLeftValue) BrakeLeftValue->SetText(FText::FromString(TEXT("L:0%")));
+		if (BrakeRightValue) BrakeRightValue->SetText(FText::FromString(TEXT("R:0%")));
+		if (InflationProgressValue) InflationProgressValue->SetVisibility(ESlateVisibility::Collapsed);
+		if (InflationProgressBar) InflationProgressBar->SetVisibility(ESlateVisibility::Collapsed);
 		if (PendulumValue) PendulumValue->SetText(FText::FromString(TEXT("--")));
 		if (WeightSupportValue) WeightSupportValue->SetText(FText::FromString(TEXT("--")));
 		if (PilotWeightValue) PilotWeightValue->SetText(FText::FromString(TEXT("--")));

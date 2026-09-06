@@ -614,8 +614,6 @@ protected:
 	void UpdateCellPressure(float DeltaTime, float ApparentWindMs, float BrakeLeft, float BrakeRight);
 	float GetTotalCellLiftN() const;
 	float GetTotalCellDragN() const;
-	float GetLeftCellLiftN() const;
-	float GetRightCellLiftN() const;
 	float GetLeftCellDragN() const;
 	float GetRightCellDragN() const;
 	void UpdateCanopyMesh();

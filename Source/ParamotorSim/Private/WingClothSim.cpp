@@ -244,24 +244,6 @@ float AWingActor::GetTotalCellDragN() const
 	return Total;
 }
 
-// Get lift on left half (cells 0-14)
-float AWingActor::GetLeftCellLiftN() const
-{
-	float Total = 0.0f;
-	for (int32 cell = 0; cell < NUM_WING_CELLS / 2; cell++)
-		Total += CellLift[cell];
-	return Total;
-}
-
-// Get lift on right half (cells 15-29)
-float AWingActor::GetRightCellLiftN() const
-{
-	float Total = 0.0f;
-	for (int32 cell = NUM_WING_CELLS / 2; cell < NUM_WING_CELLS; cell++)
-		Total += CellLift[cell];
-	return Total;
-}
-
 // Get drag on left half
 float AWingActor::GetLeftCellDragN() const
 {
