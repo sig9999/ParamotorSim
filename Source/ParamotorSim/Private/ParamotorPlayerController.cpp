@@ -511,6 +511,8 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	APawn* CachedPawn = GetPawn();
+
 	// Process throttle input when engine is running or cranking
 	if (SpawnedParamotorActor)
 	{
@@ -543,7 +545,7 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 		}
 
 		// Pass thrust info to character for trip/fall logic
-		APawn* MyPawn = GetPawn();
+		APawn* MyPawn = CachedPawn;
 		AParamotorCharacter* Char = Cast<AParamotorCharacter>(MyPawn);
 		if (Char && SpawnedParamotorActor->IsEquipped())
 		{
@@ -571,7 +573,7 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 		// If trace hits something, use that point
 		FHitResult Hit;
 		FCollisionQueryParams QueryParams;
-		APawn* MyPawn = GetPawn();
+		APawn* MyPawn = CachedPawn;
 		if (MyPawn) QueryParams.AddIgnoredActor(MyPawn);
 		if (GetWorld()->LineTraceSingleByChannel(Hit, CamLoc, TraceEnd, ECC_Visibility, QueryParams))
 		{
@@ -586,7 +588,7 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 	// Update carabiner positions while risers are connected
 	if (SpawnedWingActor && SpawnedWingActor->IsConnected() && SpawnedParamotorActor)
 	{
-		APawn* MyPawn3 = GetPawn();
+		APawn* MyPawn3 = CachedPawn;
 		AParamotorCharacter* Char3 = Cast<AParamotorCharacter>(MyPawn3);
 		if (Char3)
 		{
