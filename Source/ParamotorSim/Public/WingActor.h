@@ -19,6 +19,7 @@ static constexpr float MPH_PER_MS = 2.23694f;
 static constexpr float KMH_PER_MS = 3.6f;
 static constexpr float KNOTS_PER_MS = 1.94384f;
 static constexpr float PI_DIV_180 = 0.01745329251994329576f; // PI/180 as float
+static constexpr float RAD_TO_DEG = 180.0f / PI;       // Radians to degrees
 static constexpr float PERCENT_FACTOR = 100.0f;       // Fraction to percent (0-1 → 0-100)
 
 // Altitude-dependent air density (ISA model)

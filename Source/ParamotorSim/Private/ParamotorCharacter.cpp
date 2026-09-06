@@ -678,12 +678,12 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			}
 			float GravityN = CharMass * GRAVITY_MS2;
 			float ThrustLeanRad = FMath::Atan2(ThrustN * ThrustHeightM, GravityN * CGOffsetM);
-			float ThrustLean = ThrustLeanRad * 180.0f / PI;
+			float ThrustLean = ThrustLeanRad * RAD_TO_DEG;
 			// Forward momentum provides a restoring moment (inertia straightens pilot)
 			// M_momentum = m × v × h / dt ≈ m × v² × h / stride_length
 			// At running speed, this counteracts the thrust lean
 			float SpeedMs = GroundSpeed  / CM_PER_M;
-			float MomentumLean = FMath::Atan2(CharMass * SpeedMs * SpeedMs * ThrustHeightM, GravityN * CGOffsetM) * 180.0f / PI;
+			float MomentumLean = FMath::Atan2(CharMass * SpeedMs * SpeedMs * ThrustHeightM, GravityN * CGOffsetM) * RAD_TO_DEG;
 			TargetLeanPitch = FMath::Max(0.0f, ThrustLean - MomentumLean);
 		}
 		else

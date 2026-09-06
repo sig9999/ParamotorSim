@@ -289,8 +289,8 @@ void AParamotorActor::UpdateAArmPivots()
 
 	// Pitch: how far forward/back the wing is (X component)
 	// Yaw: how far left/right the wing is (Y component)
-	float PitchDeg = FMath::Atan2(LocalToWing.X, FMath::Abs(LocalToWing.Z)) * 180.0f / PI;
-	float YawDeg = FMath::Atan2(LocalToWing.Y, FMath::Abs(LocalToWing.Z)) * 180.0f / PI;
+	float PitchDeg = FMath::Atan2(LocalToWing.X, FMath::Abs(LocalToWing.Z)) * RAD_TO_DEG;
+	float YawDeg = FMath::Atan2(LocalToWing.Y, FMath::Abs(LocalToWing.Z)) * RAD_TO_DEG;
 
 	// Clamp to reasonable A-arm swing range (±60° pitch, ±30° yaw)
 	PitchDeg = FMath::Clamp(PitchDeg, -60.0f, 60.0f);
@@ -735,11 +735,11 @@ AParamotorActor::FBladeElementResult AParamotorActor::ComputeBladeElement(float 
 
 		float Phi = FMath::Atan2(Va, FMath::Max(0.1f, Vt));
 		float rNorm = (r - HubRadius) / (PropRadius - HubRadius);
-		float BetaRoot = 30.0f * PI / 180.0f;
+		float BetaRoot = 30.0f * PI_DIV_180;
 		float BetaTip = PitchAngle;
 		float Beta = FMath::Lerp(BetaRoot, BetaTip, rNorm);
 		float Alpha = Beta - Phi;
-		float AlphaDeg = Alpha * 180.0f / PI;
+		float AlphaDeg = Alpha * RAD_TO_DEG;
 
 		float CL, CD;
 		if (FMath::Abs(AlphaDeg) < 15.0f)
@@ -750,7 +750,7 @@ AParamotorActor::FBladeElementResult AParamotorActor::ComputeBladeElement(float 
 		else
 		{
 			CL = 0.5f * FMath::Sign(AlphaDeg);
-			CD = 1.0f + 0.3f * (FMath::Abs(AlphaDeg) - 15.0f) * PI / 180.0f;
+			CD = 1.0f + 0.3f * (FMath::Abs(AlphaDeg) - 15.0f) * PI_DIV_180;
 		}
 
 		float dL = 0.5f * Rho * Vrel * Vrel * BladeChord * CL * dr;

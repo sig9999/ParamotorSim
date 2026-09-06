@@ -67,7 +67,7 @@ if (CachedGameInstance)
 	UpdateDynamicWind(DeltaTime, GustAmplitude);
 // Wind direction: rotate the base WindDirection by the direction shift
 
-FVector ShiftedWindDir = WindDirection.RotateAngleAxis(WindDirShift * 180.0f / PI, FVector(0, 0, 1));
+FVector ShiftedWindDir = WindDirection.RotateAngleAxis(WindDirShift * RAD_TO_DEG, FVector(0, 0, 1));
 // Ground-level wind reduction: wind is slower near the ground due to surface friction
 // Wind gradient: V(h) = V_ref * (h/h_ref)^0.15, but below 2m the gradient is steeper
 // At ground level (0-2m), wind is ~50-70% of the 10m reference wind
@@ -333,7 +333,7 @@ UE_LOG(LogTemp, Warning, TEXT("WingActor: TAKEOFF! air=%.1fmph grd=%.1fmph thr=%
 FVector AWingActor::ComputeGroundWind()
 {
 	// Wind direction: rotate the base WindDirection by the direction shift
-	FVector ShiftedWindDir = WindDirection.RotateAngleAxis(WindDirShift * 180.0f / PI, FVector(0, 0, 1));
+	FVector ShiftedWindDir = WindDirection.RotateAngleAxis(WindDirShift * RAD_TO_DEG, FVector(0, 0, 1));
 	// Ground-level wind reduction: wind is slower near the ground due to surface friction
 	FVector WingLoc = GetActorLocation();
 	float WingAltitudeM = FMath::Max(0.0f, (WingLoc.Z - GetGroundZ(WingLoc)) / CM_PER_M);
@@ -384,7 +384,7 @@ void AWingActor::UpdateKitingCollapses(float DeltaTime, const FVector& PilotFwd2
 
 	// === ASYMMETRIC COLLAPSE during kiting (DETERMINISTIC) ===
 	float WindSideComponent = FVector::DotProduct(
-		WindDirection.RotateAngleAxis(WindDirShift * 180.0f / PI, FVector(0, 0, 1)),
+		WindDirection.RotateAngleAxis(WindDirShift * RAD_TO_DEG, FVector(0, 0, 1)),
 		PilotRight2);
 
 	if (FMath::Abs(WindSideComponent) > 0.1f)
@@ -440,7 +440,7 @@ if (ConnectedParamotor)	{
 		APawn* Pawn = Cast<APawn>(ConnectedParamotor->GetAttachParentActor());
 if (Pawn)		{
 			FVector Vel = Pawn->GetVelocity();
-FVector ShiftedDir = WindDirection.RotateAngleAxis(WindDirShift * 180.0f / PI, FVector(0, 0, 1));
+FVector ShiftedDir = WindDirection.RotateAngleAxis(WindDirShift * RAD_TO_DEG, FVector(0, 0, 1));
 FVector Wind = ShiftedDir * WindMs  * CM_PER_M;
 FVector Apparent = Wind - Vel;
 FVector Fwd = Pawn->GetActorForwardVector();

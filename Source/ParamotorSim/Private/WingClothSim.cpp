@@ -470,7 +470,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 	if (WingState == EWingState::Connected)
 	{
 		float WindMs = FMath::Max(0.0f, CurrentWindSpeed);
-		FVector ShiftedWindDir = WindDirection.RotateAngleAxis(WindDirShift * 180.0f / PI, FVector(0, 0, 1));
+		FVector ShiftedWindDir = WindDirection.RotateAngleAxis(WindDirShift * RAD_TO_DEG, FVector(0, 0, 1));
 		FVector WindVelVec = ShiftedWindDir * WindMs * CM_PER_M;
 		// Account for wing's own velocity (apparent wind = wind - wing velocity)
 		FVector ApparentWindVec = WindVelVec - WingGroundVel;
@@ -606,7 +606,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// If the wing is moving with the wind, apparent wind decreases.
 		// If the wing is moving into the wind, apparent wind increases.
 		float WindMs = FMath::Max(0.0f, CurrentWindSpeed);
-		FVector ShiftedWindDir = WindDirection.RotateAngleAxis(WindDirShift * 180.0f / PI, FVector(0, 0, 1));
+		FVector ShiftedWindDir = WindDirection.RotateAngleAxis(WindDirShift * RAD_TO_DEG, FVector(0, 0, 1));
 		FVector WindVelVec = ShiftedWindDir * WindMs * CM_PER_M;  // cm/s
 		FVector ApparentWindVec = WindVelVec - WingVel;  // cm/s
 		float ApparentWindMs = ApparentWindVec.Size() / CM_PER_M;  // m/s
@@ -857,13 +857,13 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// M = C_N × q × S × b × β (yawing moment coefficient × dyn pressure × area × span × sideslip)
 		float WeathervaneMoment = 0.05f * DynPressure * WingModel.WingArea * WingspanM * CrosswindComponent;  // C_N_beta=0.05
 		// No extra speed scaling - q already includes V^2
-		float WeathervaneForce = (WingInertiaYaw > 0.1f) ? WeathervaneMoment / WingInertiaYaw * 180.0f / PI : 0.0f;
+		float WeathervaneForce = (WingInertiaYaw > 0.1f) ? WeathervaneMoment / WingInertiaYaw * RAD_TO_DEG : 0.0f;
 		WeathervaneForce *= (1.0f - FrontalCollapseAmount);
 		// Yaw turbulence: crosswind turbulence creates yaw moment
 		// M_turb = q × S × b × Δβ_turb (sideslip from turbulent crosswind)
 		float TurbSideslip = (ApparentWindMs > 1.0f) ? TurbLatState / ApparentWindMs : 0.0f;
 		float YawTurbMoment = DynPressure * WingModel.WingArea * WingspanM * TurbSideslip * 0.05f;
-		float YawTurbForce = (WingInertiaYaw > 0.1f) ? YawTurbMoment / WingInertiaYaw * 180.0f / PI : 0.0f;
+		float YawTurbForce = (WingInertiaYaw > 0.1f) ? YawTurbMoment / WingInertiaYaw * RAD_TO_DEG : 0.0f;
 		// No extra damping - aerodynamic yaw damping handles it
 
 		// Per-side drag from cell pressure model (brake increases drag on braked side)
@@ -878,7 +878,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 
 		float DragDiffN = KiteRightDrag - KiteLeftDrag;
 		float YawMoment = DragDiffN * (WingspanM * 0.5f);
-		float YawAccel = (WingInertiaYaw > 0.1f) ? YawMoment / WingInertiaYaw * 180.0f / PI : 0.0f;
+		float YawAccel = (WingInertiaYaw > 0.1f) ? YawMoment / WingInertiaYaw * RAD_TO_DEG : 0.0f;
 
 		// Yaw restoring: from weathervane moment (already computed above as WeathervaneForce)
 		// No separate spring needed — the weathervane IS the restoring force
@@ -903,7 +903,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// A yawed wing generates lift perpendicular to its span.
 		// When yawed, the lift vector has a lateral component → wing moves sideways.
 		// This is the PHYSICAL effect of brake steering: yaw → lateral force → movement.
-		float YawRad = KiteYawDrift * PI / 180.0f;
+		float YawRad = KiteYawDrift * PI_DIV_180;
 		float AeroLiftN = 0.5f * Rho * ApparentWindMs * ApparentWindMs * WingModel.WingArea * WingModel.CL0 * CellFillFactor;
 		float LateralAeroAccel = (AeroLiftN / EffectiveMassKg) * CM_PER_M * FMath::Sin(YawRad);
 		FVector YawedFlightForce = PilotRight * LateralAeroAccel;
@@ -981,7 +981,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// When wing rises (Vz > 0), it pitches back (positive)
 		// When wing falls (Vz < 0), it pitches forward (surge)
 		float Vh = FVector(WingVel.X, WingVel.Y, 0.0f).Size();
-		float PitchTarget = (Vh > 1.0f) ? FMath::Atan2(-WingVel.Z, Vh) * 180.0f / PI : 0.0f;
+		float PitchTarget = (Vh > 1.0f) ? FMath::Atan2(-WingVel.Z, Vh) * RAD_TO_DEG : 0.0f;
 		// No clamp - pitch from force/moment balance
 		KitePitchOvershoot = FMath::FInterpTo(KitePitchOvershoot, PitchTarget, DeltaTime, 5.0f);
 
@@ -1181,7 +1181,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		FVector WindDir2D = WindDirection;
 		WindDir2D.Z = 0.0f;
 		WindDir2D.Normalize();
-		float WindYaw = FMath::Atan2(WindDir2D.Y, WindDir2D.X) * 180.0f / PI;
+		float WindYaw = FMath::Atan2(WindDir2D.Y, WindDir2D.X) * RAD_TO_DEG;
 		WingGroundYaw = WindYaw + KiteYawDrift;  // Absolute wing yaw
 		FVector ToWingRot = GetActorLocation() - CarabMid;
 		ToWingRot.Z = 0.0f;
@@ -1190,7 +1190,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		if (ToWingDist > LINE_LENGTH_CM * 0.1f)
 		{
 			float BlendWeight = FMath::Clamp((ToWingDist - 100.0f) / 300.0f, 0.0f, 0.4f);
-			float ToWingYaw = FMath::Atan2(ToWingRot.Y, ToWingRot.X) * 180.0f / PI;
+			float ToWingYaw = FMath::Atan2(ToWingRot.Y, ToWingRot.X) * RAD_TO_DEG;
 			float YawDiff = ToWingYaw - WingGroundYaw;
 			while (YawDiff > 180.0f) YawDiff -= 360.0f;
 			while (YawDiff < -180.0f) YawDiff += 360.0f;
@@ -1202,7 +1202,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		}
 		// Pitch: base nose-up + pendulum + overshoot
 		float ForwardComponent = (ToWingDist > 1.0f) ? FVector::DotProduct(ToWingRot.GetSafeNormal(), PilotFwdDir) * ToWingDist : 0.0f;
-		float PendulumPitch = FMath::Atan2(ForwardComponent, LINE_LENGTH_CM) * 180.0f / PI;
+		float PendulumPitch = FMath::Atan2(ForwardComponent, LINE_LENGTH_CM) * RAD_TO_DEG;
 		// No artificial stability - pitch from aerodynamic moment
 		DesiredRot.Pitch = PendulumPitch + KitePitchOvershoot;
 		// Roll: emerges from yaw dynamics, NOT direct brake input
