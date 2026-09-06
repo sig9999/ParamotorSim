@@ -147,75 +147,9 @@ UpdateCellPressure(DeltaTime, Vms, EffectiveLeftBrake, EffectiveRightBrake);
 // No separate FlightTurbulence acceleration needed.
 
 // === THERMALS (buoyancy-based updraft model) ===
-// Thermals form when sun-heated ground warms the air above it.
-// Warm air is less dense than surrounding air → buoyancy → rises.
-//
-// Thermal updraft velocity from buoyancy:
-//   w = √(2 × g × ΔT/T × h)
-// where ΔT is temperature excess, T is ambient temp, h is height above ground
-//
-// Real thermal strengths:
-// - Weak (ΔT=2°C): 1-2 m/s
-// - Moderate (ΔT=5°C): 3-5 m/s
-// - Strong (ΔT=10°C): 5-8 m/s
-// - Thermals are localized columns ~50-200m diameter, spaced ~500m apart
-float ThermalLiftMs = 0.0f;
-if (CachedGameInstance)
-{
-	float TimeOfDay = CachedGameInstance->TimeOfDay;  // 0-24
-	float CloudCover = CachedGameInstance->CloudCover;  // 0-1
-	float Temperature = CachedGameInstance->Temperature;  // Celsius
-
-	// Sun heating: peaks at solar noon (13:00), zero at night
-	// Ground temperature excess: ΔT = (T_ambient - 15) × sun_factor × (1 - cloud)
-	float SunIntensity = 0.0f;
-	if (TimeOfDay > 7.0f && TimeOfDay < 19.0f)
-	{
-		float DayProgress = (TimeOfDay - 7.0f) / 12.0f;
-		SunIntensity = FMath::Sin(DayProgress * PI);
-	}
-	float TempExcess = FMath::Max(0.0f, (Temperature - 15.0f) * SunIntensity * (1.0f - CloudCover * 0.75f));  // Cloud extinction ~0.75
-
-	// Buoyancy-driven updraft: w = √(2 × g × ΔT/T × h)
-	// At h=50m, ΔT=5°C, T=25°C: w = √(2 × 9.81 × 5/298 × 50) = 4.0 m/s
-	float AmbientTempK = Temperature + 273.15f;
-	float HeightInThermal = AltitudeM;  // No arbitrary cap - buoyancy formula naturally limits
-	if (TempExcess > 0.1f && HeightInThermal > 1.0f)
-	{
-		ThermalLiftMs = FMath::Sqrt(2.0f * 9.81f * TempExcess / AmbientTempK * HeightInThermal);
-		// No arbitrary cap — the buoyancy formula and altitude decay below
-		// naturally limit thermal strength to realistic values (5-8 m/s max)
-	}
-
-	// Thermal field: localized columns, not uniform
-	// Real thermals are ~50-200m diameter, spaced ~500m apart
-	// Use position-based field with coherent structure
-	FVector WingPos = GetActorLocation();
-	// Thermal spacing: 500m = 50000cm. Column radius: 100m = 10000cm
-	float ThermalSpacing = 50000.0f;  // cm
-	float ThermalRadius = 10000.0f;   // cm
-	// Find nearest thermal center (grid-based)
-	float NearestThermalX = FMath::RoundToInt(WingPos.X / ThermalSpacing) * ThermalSpacing;
-	float NearestThermalY = FMath::RoundToInt(WingPos.Y / ThermalSpacing) * ThermalSpacing;
-	// Offset thermal centers slightly so they're not perfectly grid-aligned
-	NearestThermalX += FMath::Sin(NearestThermalY * 0.0001f) * ThermalSpacing * 0.3f;
-	NearestThermalY += FMath::Cos(NearestThermalX * 0.0001f) * ThermalSpacing * 0.3f;
-	// Distance from thermal center
-	float DX = WingPos.X - NearestThermalX;
-	float DY = WingPos.Y - NearestThermalY;
-	float DistFromCenter = FMath::Sqrt(DX * DX + DY * DY);
-	// Thermal profile: strongest at center, zero at edge (Gaussian)
-	float ThermalProfile = FMath::Exp(-(DistFromCenter * DistFromCenter) / (2.0f * ThermalRadius * ThermalRadius));
-	ThermalLiftMs *= ThermalProfile;
-
-	// Thermals weaken with altitude (spread out and dissipate)
-	if (AltitudeM > 200.0f)
-		ThermalLiftMs *= FMath::Max(0.0f, 1.0f - (AltitudeM - 200.0f) / 800.0f);
-}
+float ThermalLiftMs = ComputeThermalLiftMs(AltitudeM);
 // Apply thermal lift as additional vertical air velocity (not acceleration)
-// This changes the apparent wind's vertical component, which changes AoA
-// and climb rate through the aerodynamic polar — no fake force needed.
-ApparentWind.Z += ThermalLiftMs * 100.0f;  // m/s → cm/s vertical air movement
+ApparentWind.Z += ThermalLiftMs * 100.0f;  // m/s to cm/s vertical air movement  // m/s → cm/s vertical air movement
 // Per-side AoA: base cruise + effective brake (with lag) + turbulence
 // Vertical turbulence changes AoA — TurbVertState is in m/s, convert to AoA:
 // ΔAoA ≈ atan(ΔV_vert / V_airspeed) ≈ ΔV_vert / V (small angle)
@@ -1437,3 +1371,56 @@ void AWingActor::AdjustHangPoint(float Delta)
 	HangPointOffset = FMath::Clamp(HangPointOffset + Delta, -1.0f, 1.0f);
 }
 
+
+// ============================================================
+// FLIGHT PHYSICS HELPERS
+// ============================================================
+
+float AWingActor::ComputeThermalLiftMs(float AltitudeM) const
+{
+	// Thermals form when sun-heated ground warms the air above it.
+	// Warm air is less dense than surrounding air -> buoyancy -> rises.
+	// Thermal updraft velocity: w = sqrt(2 * g * dT/T * h)
+	if (!CachedGameInstance) return 0.0f;
+
+	float TimeOfDay = CachedGameInstance->TimeOfDay;
+	float CloudCover = CachedGameInstance->CloudCover;
+	float Temperature = CachedGameInstance->Temperature;
+
+	// Sun heating: peaks at solar noon (13:00), zero at night
+	float SunIntensity = 0.0f;
+	if (TimeOfDay > 7.0f && TimeOfDay < 19.0f)
+	{
+		float DayProgress = (TimeOfDay - 7.0f) / 12.0f;
+		SunIntensity = FMath::Sin(DayProgress * PI);
+	}
+	float TempExcess = FMath::Max(0.0f, (Temperature - 15.0f) * SunIntensity * (1.0f - CloudCover * 0.75f));
+
+	// Buoyancy-driven updraft: w = sqrt(2 * g * dT/T * h)
+	float AmbientTempK = Temperature + 273.15f;
+	float ThermalLiftMs = 0.0f;
+	if (TempExcess > 0.1f && AltitudeM > 1.0f)
+	{
+		ThermalLiftMs = FMath::Sqrt(2.0f * 9.81f * TempExcess / AmbientTempK * AltitudeM);
+	}
+
+	// Thermal field: localized columns, not uniform
+	FVector WingPos = GetActorLocation();
+	float ThermalSpacing = 50000.0f;  // 500m in cm
+	float ThermalRadius = 10000.0f;   // 100m in cm
+	float NearestThermalX = FMath::RoundToInt(WingPos.X / ThermalSpacing) * ThermalSpacing;
+	float NearestThermalY = FMath::RoundToInt(WingPos.Y / ThermalSpacing) * ThermalSpacing;
+	NearestThermalX += FMath::Sin(NearestThermalY * 0.0001f) * ThermalSpacing * 0.3f;
+	NearestThermalY += FMath::Cos(NearestThermalX * 0.0001f) * ThermalSpacing * 0.3f;
+	float DX = WingPos.X - NearestThermalX;
+	float DY = WingPos.Y - NearestThermalY;
+	float DistFromCenter = FMath::Sqrt(DX * DX + DY * DY);
+	float ThermalProfile = FMath::Exp(-(DistFromCenter * DistFromCenter) / (2.0f * ThermalRadius * ThermalRadius));
+	ThermalLiftMs *= ThermalProfile;
+
+	// Thermals weaken with altitude (spread out and dissipate)
+	if (AltitudeM > 200.0f)
+		ThermalLiftMs *= FMath::Max(0.0f, 1.0f - (AltitudeM - 200.0f) / 800.0f);
+
+	return ThermalLiftMs;
+}

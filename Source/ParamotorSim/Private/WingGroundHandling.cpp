@@ -61,8 +61,8 @@ void AWingActor::UpdateInflation(float DeltaTime){
 // Turbulence adds random perturbations. Direction shifts ±15°.
 
 float GustAmplitude = 0.0f;
-if (UParamotorGameInstance* GI = GetWorld()->GetGameInstance<UParamotorGameInstance>())
-		GustAmplitude = GI->WindGusts;
+if (CachedGameInstance)
+		GustAmplitude = CachedGameInstance->WindGusts;
 // Use unified wind update helper
 	UpdateDynamicWind(DeltaTime, GustAmplitude);
 // Wind direction: rotate the base WindDirection by the direction shift
@@ -309,147 +309,120 @@ UE_LOG(LogTemp, Warning, TEXT("WingActor: TAKEOFF! air=%.1fmph grd=%.1fmph thr=%
 }
 }
 		// === COLLAPSE PHYSICS DURING KITING ===
-// Real collapses happen during ground handling when:
-// 1. The wing surges too far forward (low AoA → leading edge folds under)
-// 2. Turbulence/gusts hit the wing asymmetrically
-// 3. Wind direction shifts suddenly
-// 4. The pilot over-brakes then releases (wing shoots forward)
-//
-// KEY: Overloaded wings are MORE collapse-resistant, not less.
-// Higher wing loading = more internal pressure = stiffer canopy.
-// The trade-off is faster/more dynamic behavior, not more collapses.
-//
-// Collapse types:
-// - Frontal: entire leading edge folds under (wing surges forward + gust)
-// - Asymmetric: one side folds (turbulence on one side, or wing drifts)
-// - Tip fold: outer tips fold (minor turbulence, or induced)
-
-float KiteWeightRatio = WingModel.MaxTakeoffWeight > 0.0f ? PilotWeight / WingModel.MaxTakeoffWeight : 1.0f;
-// Overloaded wings are more collapse-resistant (higher internal pressure)
-float CollapseResistance = FMath::Max(0.1f, KiteWeightRatio);
-// 0.5x at light load, 2.0x at heavy
-// Fast trimmers reduce collapse resistance (reflex mode is twitchy)
-		CollapseResistance /= GetTrimmerCollapseRisk();
-// Local pilot vectors for collapse direction calculations
-
-FVector PilotFwd2 = FVector::ForwardVector;
-FVector PilotRight2 = FVector::RightVector;
-if (ConnectedParamotor)		{
+		// Get pilot vectors for collapse direction
+		FVector PilotFwd2 = FVector::ForwardVector;
+		FVector PilotRight2 = FVector::RightVector;
+		if (ConnectedParamotor)
+		{
 			APawn* Pawn2 = Cast<APawn>(ConnectedParamotor->GetAttachParentActor());
-if (Pawn2)			{
+			if (Pawn2)
+			{
 				PilotFwd2 = Pawn2->GetActorForwardVector();
-PilotFwd2.Z = 0;
-PilotFwd2.Normalize();
-PilotRight2 = Pawn2->GetActorRightVector();
-PilotRight2.Z = 0;
-PilotRight2.Normalize();
-}
-}
-		float LocalTotalBrake = (LeftBrakeAmount + RightBrakeAmount) * 0.5f;
-	// No brakes = less drag damping = wing surges faster (physical, not a multiplier)
-	// Damping ratio: ζ ∝ CD_brake. No brakes → ζ → 0 → surge overshoot ~2x
-	float BrakeDampingFactor = 1.0f / (1.0f + LocalTotalBrake * 1.5f);  // From brake drag increase
-	// Cell deflation rate from airspeed (same physics as flight collapses)
-	float KiteDeflateRate = FMath::Max(0.5f, CurrentWindSpeed * 0.33f);
-// === FRONTAL COLLAPSE during kiting ===
-// Triggered when the wing surges too far forward (KiteOffset forward component)
-// combined with turbulence. The further forward, the more likely.
-
-float ForwardSurge = FVector::DotProduct(KiteOffset, PilotFwd2);
-// + = wing ahead of pilot
-// Frontal collapse risk: wing surging forward + turbulence
-// Real frontal collapse: wing surges past ~45° from overhead = ~500cm on 7m lines
-// Normal inflation overshoot is 100-300cm — should NOT trigger collapse
-
-// DETERMINISTIC frontal collapse: wing surging past 45° from overhead
-		// Real frontal collapse: wing surges past ~45° from overhead = ~500cm on 7m lines
-		// Normal inflation overshoot is 100-300cm — should NOT trigger collapse
-		// Collapse amount ramps up deterministically when surge exceeds threshold
-		if (ForwardSurge > LINE_LENGTH_CM * 0.5f)
-		{
-			float FrontalSeverity = FMath::Clamp((ForwardSurge - LINE_LENGTH_CM * 0.5f) / (LINE_LENGTH_CM * 0.3f), 0.0f, 1.0f);
-			// Scale by dynamic pressure relative to takeoff airspeed (not magic 8²=64)
-			float q = 0.5f * AIR_DENSITY_SEA_LEVEL * CurrentWindSpeed * CurrentWindSpeed;
-			float qRef = 0.5f * AIR_DENSITY_SEA_LEVEL * FMath::Square(MIN_TAKEOFF_AIRSPEED_MS);
-			float DynamicPressureFactor = q / FMath::Max(0.1f, qRef);
-			FrontalSeverity *= DynamicPressureFactor;
-			FrontalSeverity *= (1.0f + FMath::Abs(WindTurbulence) * 0.5f);
-			FrontalSeverity /= CollapseResistance;
-			if (LocalTotalBrake < 0.01f)
-				FrontalSeverity *= BrakeDampingFactor;  // No brake damping → faster surge
-			// Ramp up collapse at cell deflation rate
-			FrontalCollapseAmount = FMath::Min(1.0f, FrontalCollapseAmount + FrontalSeverity * DeltaTime * KiteDeflateRate);
-			if (FrontalCollapseAmount > 0.1f)
-			{
-				UE_LOG(LogTemp, Warning, TEXT("WingActor: KITING FRONTAL COLLAPSE! surge=%.0f wind=%.1f turb=%.2f resist=%.2f"),
-					ForwardSurge, CurrentWindSpeed, WindTurbulence, CollapseResistance);
+				PilotFwd2.Z = 0;
+				PilotFwd2.Normalize();
+				PilotRight2 = Pawn2->GetActorRightVector();
+				PilotRight2.Z = 0;
+				PilotRight2.Normalize();
 			}
 		}
-		// === ASYMMETRIC COLLAPSE during kiting (DETERMINISTIC) ===
-		// Triggered by wind direction shift catching one side more than the other.
-		// The side facing into the shift gets more pressure, the other side loses it.
-		// No randomness — the wind side component directly determines collapse.
-
-		float WindSideComponent = FVector::DotProduct(
-			WindDirection.RotateAngleAxis(WindDirShift * 180.0f / PI, FVector(0, 0, 1)),
-			PilotRight2);
-
-		// Deterministic asymmetric collapse from wind side component
-		if (FMath::Abs(WindSideComponent) > 0.1f)
-		{
-			float AsymSeverity = FMath::Abs(WindSideComponent);
-			// CollapseResistance already includes GetTrimmerCollapseRisk() (divided at line 331)
-			// Do NOT multiply by GetTrimmerCollapseRisk() again — that would give Risk²
-			AsymSeverity /= CollapseResistance;
-			// The side AWAY from the wind shift collapses (loses pressure)
-			bool bRightCollapse = (WindSideComponent > 0.0f);
-			float CollapseAmt = AsymSeverity * DeltaTime * KiteDeflateRate;
-			if (bRightCollapse)
-			{
-				RightCollapseAmount = FMath::Min(1.0f, RightCollapseAmount + CollapseAmt);
-				if (CollapseAmt > 0.01f)
-				{
-					UE_LOG(LogTemp, Warning, TEXT("WingActor: KITING ASYMMETRIC RIGHT COLLAPSE %.0f%%! wind=%.1f turb=%.2f resist=%.2f"),
-						CollapseAmt * 100.0f, CurrentWindSpeed, WindTurbulence, CollapseResistance);
-				}
-			}
-			else
-			{
-				LeftCollapseAmount = FMath::Min(1.0f, LeftCollapseAmount + CollapseAmt);
-				if (CollapseAmt > 0.01f)
-				{
-					UE_LOG(LogTemp, Warning, TEXT("WingActor: KITING ASYMMETRIC LEFT COLLAPSE %.0f%%! wind=%.1f turb=%.2f resist=%.2f"),
-						CollapseAmt * 100.0f, CurrentWindSpeed, WindTurbulence, CollapseResistance);
-				}
-			}
-		}
-		// === COLLAPSE RECOVERY during kiting ===
-// Real wings re-pressurize from apparent wind.
-// Recovery rate depends on airspeed (more wind = faster recovery).
-
-// Recovery rate from cell refill physics (same as flight: Vms/5)
-float RecoveryRate = FMath::Max(0.3f, CurrentWindSpeed * 0.20f) / CollapseResistance;
-// Brakes slow recovery (holding brakes keeps the wing collapsed longer)
-		RecoveryRate *= (1.0f - LocalTotalBrake);
-if (FrontalCollapseAmount > 0.0f)		{
-			FrontalCollapseAmount = FMath::Max(0.0f, FrontalCollapseAmount - RecoveryRate * DeltaTime);
-}
-		if (LeftCollapseAmount > 0.0f)		{
-			LeftCollapseAmount = FMath::Max(0.0f, LeftCollapseAmount - RecoveryRate * DeltaTime);
-}
-		if (RightCollapseAmount > 0.0f)		{
-			RightCollapseAmount = FMath::Max(0.0f, RightCollapseAmount - RecoveryRate * DeltaTime);
-}
-		// === OVERLOAD BEHAVIOR ===
-// Overloaded wings stay inflated MORE strongly (higher internal pressure).
-// They do NOT collapse from overload. The only effect of overload is:
-// - Can't take off (WeightSupport < 1.0 in takeoff logic)
-// - Faster/more dynamic behavior
-// - Worse climb performance
-// No collapse or inflation loss from overload alone.
+		UpdateKitingCollapses(DeltaTime, PilotFwd2, PilotRight2);
 
 } // close if (WingState == Inflated)
 } // close UpdateInflation
+
+FVector AWingActor::ComputeGroundWind()
+{
+	// Wind direction: rotate the base WindDirection by the direction shift
+	FVector ShiftedWindDir = WindDirection.RotateAngleAxis(WindDirShift * 180.0f / PI, FVector(0, 0, 1));
+	// Ground-level wind reduction: wind is slower near the ground due to surface friction
+	FVector WingLoc = GetActorLocation();
+	float WingAltitudeM = FMath::Max(0.0f, (WingLoc.Z - GetGroundZ(WingLoc)) / CM_PER_M);
+	float GroundWindFactor = FMath::Clamp(FMath::Pow(FMath::Max(0.5f, WingAltitudeM / 10.0f), 0.15f), 0.5f, 1.0f);
+	float GroundWindSpeed = CurrentWindSpeed * GroundWindFactor;
+	return ShiftedWindDir * GroundWindSpeed * CM_PER_M;  // cm/s
+}
+
+void AWingActor::UpdateKitingCollapses(float DeltaTime, const FVector& PilotFwd2, const FVector& PilotRight2)
+{
+	// Real collapses happen during ground handling when:
+	// 1. The wing surges too far forward (low AoA -> leading edge folds under)
+	// 2. Turbulence/gusts hit the wing asymmetrically
+	// 3. Wind direction shifts suddenly
+	// 4. The pilot over-brakes then releases (wing shoots forward)
+	//
+	// KEY: Overloaded wings are MORE collapse-resistant, not less.
+	// Higher wing loading = more internal pressure = stiffer canopy.
+
+	float KiteWeightRatio = WingModel.MaxTakeoffWeight > 0.0f ? PilotWeight / WingModel.MaxTakeoffWeight : 1.0f;
+	float CollapseResistance = FMath::Max(0.1f, KiteWeightRatio);
+	CollapseResistance /= GetTrimmerCollapseRisk();
+
+	float LocalTotalBrake = (LeftBrakeAmount + RightBrakeAmount) * 0.5f;
+	float BrakeDampingFactor = 1.0f / (1.0f + LocalTotalBrake * 1.5f);
+	float KiteDeflateRate = FMath::Max(0.5f, CurrentWindSpeed * 0.33f);
+
+	// === FRONTAL COLLAPSE during kiting ===
+	float ForwardSurge = FVector::DotProduct(KiteOffset, PilotFwd2);
+	if (ForwardSurge > LINE_LENGTH_CM * 0.5f)
+	{
+		float FrontalSeverity = FMath::Clamp((ForwardSurge - LINE_LENGTH_CM * 0.5f) / (LINE_LENGTH_CM * 0.3f), 0.0f, 1.0f);
+		float q = 0.5f * AIR_DENSITY_SEA_LEVEL * CurrentWindSpeed * CurrentWindSpeed;
+		float qRef = 0.5f * AIR_DENSITY_SEA_LEVEL * FMath::Square(MIN_TAKEOFF_AIRSPEED_MS);
+		float DynamicPressureFactor = q / FMath::Max(0.1f, qRef);
+		FrontalSeverity *= DynamicPressureFactor;
+		FrontalSeverity *= (1.0f + FMath::Abs(WindTurbulence) * 0.5f);
+		FrontalSeverity /= CollapseResistance;
+		if (LocalTotalBrake < 0.01f)
+			FrontalSeverity *= BrakeDampingFactor;
+		FrontalCollapseAmount = FMath::Min(1.0f, FrontalCollapseAmount + FrontalSeverity * DeltaTime * KiteDeflateRate);
+		if (FrontalCollapseAmount > 0.1f)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("WingActor: KITING FRONTAL COLLAPSE! surge=%.0f wind=%.1f turb=%.2f resist=%.2f"),
+				ForwardSurge, CurrentWindSpeed, WindTurbulence, CollapseResistance);
+		}
+	}
+
+	// === ASYMMETRIC COLLAPSE during kiting (DETERMINISTIC) ===
+	float WindSideComponent = FVector::DotProduct(
+		WindDirection.RotateAngleAxis(WindDirShift * 180.0f / PI, FVector(0, 0, 1)),
+		PilotRight2);
+
+	if (FMath::Abs(WindSideComponent) > 0.1f)
+	{
+		float AsymSeverity = FMath::Abs(WindSideComponent);
+		AsymSeverity /= CollapseResistance;
+		bool bRightCollapse = (WindSideComponent > 0.0f);
+		float CollapseAmt = AsymSeverity * DeltaTime * KiteDeflateRate;
+		if (bRightCollapse)
+		{
+			RightCollapseAmount = FMath::Min(1.0f, RightCollapseAmount + CollapseAmt);
+			if (CollapseAmt > 0.01f)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("WingActor: KITING ASYMMETRIC RIGHT COLLAPSE %.0f%%! wind=%.1f turb=%.2f resist=%.2f"),
+					CollapseAmt * 100.0f, CurrentWindSpeed, WindTurbulence, CollapseResistance);
+			}
+		}
+		else
+		{
+			LeftCollapseAmount = FMath::Min(1.0f, LeftCollapseAmount + CollapseAmt);
+			if (CollapseAmt > 0.01f)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("WingActor: KITING ASYMMETRIC LEFT COLLAPSE %.0f%%! wind=%.1f turb=%.2f resist=%.2f"),
+					CollapseAmt * 100.0f, CurrentWindSpeed, WindTurbulence, CollapseResistance);
+			}
+		}
+	}
+
+	// === COLLAPSE RECOVERY during kiting ===
+	float RecoveryRate = FMath::Max(0.3f, CurrentWindSpeed * 0.20f) / CollapseResistance;
+	RecoveryRate *= (1.0f - LocalTotalBrake);
+	if (FrontalCollapseAmount > 0.0f)
+		FrontalCollapseAmount = FMath::Max(0.0f, FrontalCollapseAmount - RecoveryRate * DeltaTime);
+	if (LeftCollapseAmount > 0.0f)
+		LeftCollapseAmount = FMath::Max(0.0f, LeftCollapseAmount - RecoveryRate * DeltaTime);
+	if (RightCollapseAmount > 0.0f)
+		RightCollapseAmount = FMath::Max(0.0f, RightCollapseAmount - RecoveryRate * DeltaTime);
+}
 
 float AWingActor::GetTakeoffChance() const{
 	// 0-100% based on weight ratio, wind, and current airspeed

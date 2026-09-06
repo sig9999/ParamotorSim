@@ -372,42 +372,7 @@ void AParamotorActor::Tick(float DeltaTime)
 
 	if (EngineState == EEngineState::Cranking)
 	{
-		StarterTimer += DeltaTime;
-
-		// Engine catches ONLY if throttle is being given
-		if (Throttle > 0.02f)  // Min throttle for combustion
-		{
-			// Engine catches after cranking for at least 1.5 seconds with throttle
-			// (you need to hear the starter cranking before it catches)
-			if (StarterTimer >= 1.0f)  // Cranking time before catch
-			{
-				EngineState = EEngineState::Running;
-				StarterAudio->Stop();
-
-				// Start engine idle, exhaust, and prop wind sounds
-				EngineAudio->Play();
-				ExhaustAudio->Play();
-				PropWindAudio->Play();
-
-				// Idle volume - paramotors are LOUD (~100+ dB at idle)
-				EngineAudio->SetVolumeMultiplier(1.5f);
-				EngineAudio->SetPitchMultiplier(1.0f);
-				ExhaustAudio->SetVolumeMultiplier(1.2f);
-				ExhaustAudio->SetPitchMultiplier(1.0f);
-				// Prop wind at idle - still audible
-				PropWindAudio->SetVolumeMultiplier(0.3f);
-				PropWindAudio->SetPitchMultiplier(0.28f);
-
-				UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Engine caught! Running at throttle=%.2f"), Throttle);
-			}
-		}
-
-		// If cranking too long without throttle, give up after 5 seconds
-		if (StarterTimer >= 8.0f)  // Starter thermal limit
-		{
-			StopCranking();
-			UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Starter gave up (no throttle)"));
-		}
+		UpdateCranking(DeltaTime);
 	}
 
 	if (EngineState == EEngineState::Running)
@@ -421,151 +386,156 @@ void AParamotorActor::Tick(float DeltaTime)
 			UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Fuel cutoff — engine stopped"));
 		}
 
-		// === ENGINE RPM DYNAMICS (real torque balance) ===
-		// J·dω/dt = τ_engine(ω, throttle) − τ_prop(ω, airspeed)
-		// The engine produces torque from combustion, the propeller absorbs
-		// torque from aerodynamic drag. RPM settles where they balance.
-		//
-		// Moster 185 specs:
-		// - Peak power: 18.5 kW at 7800 RPM
-		// - Idle: ~2500 RPM
-		// - Reduction ratio: 2.58:1
-		//
-		// Engine torque: τ_engine = P / ω (power / angular velocity)
-		// At peak: τ = 18500 / (7800 × 2π/60) = 22.6 N·m
-		// Prop torque: τ_prop = P_prop / ω_prop (absorbed by aerodynamic drag)
-		// Inertia: J ≈ 0.05 kg·m² (engine + prop + reduction)
-		float IdleRPMVal = IDLE_RPM;  // Use project constant (was hardcoded 2500.0f)
-		float EngineOmega = EngineRPM * 2.0f * PI / 60.0f;  // rad/s
+		UpdateEngineRPM(DeltaTime);
+		UpdateEngineTemp(DeltaTime);
+		UpdateFuel(DeltaTime);
+
+		// Prop rotation from real angular velocity
 		float PropOmega = GetPropRPM() * 2.0f * PI / 60.0f;
-
-		// Engine torque: produces torque from throttle combustion
-		// At idle: just enough to overcome internal friction
-		// At full throttle: peak torque at peak RPM
-		float EffectiveThrottle = FMath::Max(0.0f, (Throttle - 0.1f) / 0.9f);  // Consistent with thrust API
-		float EnginePowerW = 18500.0f * EffectiveThrottle * FMath::Max(0.0f, EngineRPM / REDLINE_RPM);  // Power scales with RPM
-		float EngineTorque = (EngineOmega > 10.0f) ? EnginePowerW / EngineOmega : 0.0f;
-
-		// Idle torque: engine produces minimum torque from idle fuel flow
-		// Real Moster 185 idle: ~2500 RPM, ~1.5 kW (typical 2-stroke idle power)
-		// τ_idle = P_idle / ω_idle = 1500 / (2500 × 2π/60) ≈ 5.7 N·m
-		float IdlePowerW = 1500.0f;  // Real idle power for Moster 185
-		float IdleOmega = IdleRPMVal * 2.0f * PI / 60.0f;
-		float IdleTorque = (EngineRPM < IdleRPMVal) ? IdlePowerW / FMath::Max(1.0f, IdleOmega) : 0.0f;
-
-		// Propeller torque: from blade element theory (same model as thrust)
-		// τ_prop = Σ (dL×sin(φ) + dD×cos(φ)) × r for each blade element
-		float AirspeedForTorque = 0.0f;
-		// Use GetAttachParentActor() (the pilot) for velocity — attachment doesn't set Owner
-		if (AActor* ParentActor = GetAttachParentActor())
-			AirspeedForTorque = ParentActor->GetVelocity().Size() / 100.0f;
-		float PropTorque = GetPropTorqueNM(AirspeedForTorque);
-		// Prop torque is at the propeller shaft — divide by reduction ratio to get
-		// engine-shaft torque (the engine sees less torque through the gear reduction)
-		float PropTorqueAtEngine = PropTorque / PROP_REDUCTION_RATIO;
-
-		// Engine rotational inertia (kg·m²) — real Moster 185 value
-		// Crank + flywheel: ~0.03 kg·m². Propeller (1.3m, 1.5kg): I = m×r²/3 ≈ 0.085 kg·m²
-		// Reduction gear adds ~0.005. Total ≈ 0.12 kg·m² (reflected to engine side)
-		float EngineInertia = 0.12f;
-
-		// Net torque → angular acceleration → RPM change
-		float NetTorque = EngineTorque + IdleTorque - PropTorqueAtEngine;
-		float AngularAccel = NetTorque / EngineInertia;  // rad/s²
-		EngineOmega += AngularAccel * DeltaTime;
-		EngineRPM = EngineOmega * 60.0f / (2.0f * PI);
-		EngineRPM = FMath::Clamp(EngineRPM, 0.0f, REDLINE_RPM);
-
-		// === Engine temperature (CHT - cylinder head temp) ===
-		// Target temp depends on RPM: idle ~75C, full throttle ~110C
-		float TargetTemp = 75.0f + (EngineRPM / REDLINE_RPM) * 35.0f;
-		// Thermal response: τ = m_cp / (h × A) where m=engine mass, cp=specific heat,
-		// h=convective coefficient, A=surface area. For a small 2-stroke head:
-		// m≈2kg, cp≈500 J/kg·K, h≈50 W/m²·K, A≈0.05 m² → τ ≈ 400s
-		// FInterpTo rate = 1/τ ≈ 0.0025/s. But we want faster gameplay response,
-		// so use the actual cooling rate (h×A/(m×cp)) which gives ~0.0025/s
-		EngineTemp = FMath::FInterpTo(EngineTemp, TargetTemp, DeltaTime, 0.01f);  // Physical: tau~100s (m*cp/(h*A))
-
-		// === EGT (exhaust gas temperature) ===
-		// EGT is higher than CHT and responds faster (smaller thermal mass)
-		// Idle ~450C, full throttle ~650C
-		// EGT thermal mass: exhaust gas has very low mass, responds in ~1-2s
-		float TargetEGT = 450.0f + (EngineRPM / REDLINE_RPM) * 200.0f;
-		EGT = FMath::FInterpTo(EGT, TargetEGT, DeltaTime, 2.0f);  // Physical: tau~0.5s (low thermal mass)
-
-		// === Fuel consumption (from BSFC × power) ===
-		// Real Moster 185: BSFC ≈ 0.4 kg/kW·h (typical 2-stroke)
-		// Gasoline density ≈ 0.75 kg/L
-		// Fuel flow (L/s) = P (kW) × BSFC / (3600 × ρ_fuel)
-		// At full power (18.5 kW): 18.5 × 0.4 / (3600 × 0.75) = 0.00274 L/s
-		// Tank = 10L → ~3.6 hours at cruise (matches real ~3-4 L/h)
-		// FuelLevel is 0-1 (fraction of tank), so divide by tank volume
-		float BSFC = 0.4f;           // kg/kW·h (brake-specific fuel consumption)
-		float FuelDensity = 0.75f;   // kg/L (gasoline)
-		float TankVolumeL = 10.0f;   // Moster 185 tank size
-		float PowerKW = EnginePowerW / 1000.0f;
-		float FuelFlowLPerS = PowerKW * BSFC / (3600.0f * FuelDensity);
-		float FuelRate = FuelFlowLPerS / TankVolumeL;  // Fraction per second
-		FuelLevel -= FuelRate * DeltaTime;
-		FuelLevel = FMath::Clamp(FuelLevel, 0.0f, 1.0f);
-
-		// Run out of fuel -> engine stops
-		if (FuelLevel <= 0.0f)
-		{
-			StopEngine();
-			UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Out of fuel! Engine stopped"));
-		}
-
-		// === Prop rotation: realistic RPM-based ===
-		// Real prop RPM = engine RPM (direct drive, no gearbox on most paramotors)
-		// At 7800 RPM = 130 rev/sec = 817 rad/s
-		// Visually this would be a blur, so we cap the visual rotation speed
-		// but keep it proportional to actual RPM
-		// At 0 throttle (idle 2500 RPM): prop spins slowly (freewheeling)
-		// At full throttle (7800 RPM): prop is a blur
-		// Prop rotation from real angular velocity (already computed above as PropOmega)
 		PropRotation += PropOmega * DeltaTime;
 		UpdatePropMeshRotation();
 
-		// Sound: pitch and volume scale with RPM
-		float RPMRatio = (EngineRPM - IDLE_RPM) / (REDLINE_RPM - IDLE_RPM);
-		float Pitch = 1.0f + RPMRatio * 1.5f;
-		// Engine volume: quieter at idle (0 throttle), louder under power
-		// At 0 throttle: 0.8 (just idling), at full: 2.0 (screaming)
-		float EngineVol = 0.8f + Throttle * 1.2f;
-		// Exhaust: quieter at idle, louder under power
-		float ExhaustVol = 0.6f + Throttle * 1.4f;
-
-		EngineAudio->SetPitchMultiplier(Pitch);
-		EngineAudio->SetVolumeMultiplier(EngineVol);
-		ExhaustAudio->SetPitchMultiplier(Pitch * 0.85f);
-		ExhaustAudio->SetVolumeMultiplier(ExhaustVol);
-
-		// Prop wind: scales dramatically with RPM AND throttle
-		// At 0 throttle (idle): prop freewheels, barely any wind noise (0.05 vol)
-		// At full throttle: VERY LOUD (1.5 vol) — this is the dominant sound in flight
-		float PropWindVol = 0.05f + Throttle * 1.45f;
-		// Pitch: 0.28 at idle to 1.0 at full (sound was generated at max RPM)
-		float PropWindPitch = 0.28f + RPMRatio * 0.72f;
-		PropWindAudio->SetVolumeMultiplier(PropWindVol);
-		PropWindAudio->SetPitchMultiplier(PropWindPitch);
+		UpdateEngineAudio();
 	}
 	else
 	{
-		// Prop slows down and stops when not running
-		if (EngineRPM > 0.0f)
-		{
-			EngineRPM = FMath::FInterpTo(EngineRPM, 0.0f, DeltaTime, 0.5f);  // Windmilling + bearing friction
-			float PropOmega = GetPropRPM() * 2.0f * PI / 60.0f;
-			PropRotation += PropOmega * DeltaTime;
-			UpdatePropMeshRotation();
-		}
+		UpdateEngineSpoolDown(DeltaTime);
+	}
+}
 
-		// Engine cools down when off
-		if (EngineTemp > 20.0f)
+void AParamotorActor::UpdateCranking(float DeltaTime)
+{
+	StarterTimer += DeltaTime;
+
+	// Engine catches ONLY if throttle is being given
+	if (Throttle > 0.02f)
+	{
+		if (StarterTimer >= 1.0f)
 		{
-			EngineTemp = FMath::FInterpTo(EngineTemp, 20.0f, DeltaTime, 0.01f);  // Same physical cooling rate
+			EngineState = EEngineState::Running;
+			StarterAudio->Stop();
+
+			EngineAudio->Play();
+			ExhaustAudio->Play();
+			PropWindAudio->Play();
+
+			// Idle volume - paramotors are LOUD (~100+ dB at idle)
+			EngineAudio->SetVolumeMultiplier(1.5f);
+			EngineAudio->SetPitchMultiplier(1.0f);
+			ExhaustAudio->SetVolumeMultiplier(1.2f);
+			ExhaustAudio->SetPitchMultiplier(1.0f);
+			PropWindAudio->SetVolumeMultiplier(0.3f);
+			PropWindAudio->SetPitchMultiplier(0.28f);
+
+			UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Engine caught! Running at throttle=%.2f"), Throttle);
 		}
+	}
+
+	// If cranking too long without throttle, give up (starter thermal limit)
+	if (StarterTimer >= 8.0f)
+	{
+		StopCranking();
+		UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Starter gave up (no throttle)"));
+	}
+}
+
+void AParamotorActor::UpdateEngineRPM(float DeltaTime)
+{
+	// J·dω/dt = τ_engine(ω, throttle) − τ_prop(ω, airspeed)
+	float EngineOmega = EngineRPM * 2.0f * PI / 60.0f;
+	float PropOmega = GetPropRPM() * 2.0f * PI / 60.0f;
+
+	// Engine torque from throttle combustion
+	float EffectiveThrottle = FMath::Max(0.0f, (Throttle - 0.1f) / 0.9f);
+	float EnginePowerW = 18500.0f * EffectiveThrottle * FMath::Max(0.0f, EngineRPM / REDLINE_RPM);
+	float EngineTorque = (EngineOmega > 10.0f) ? EnginePowerW / EngineOmega : 0.0f;
+
+	// Idle torque: ~5.7 N·m at 2500 RPM (1.5 kW idle power)
+	float IdlePowerW = 1500.0f;
+	float IdleOmega = IDLE_RPM * 2.0f * PI / 60.0f;
+	float IdleTorque = (EngineRPM < IDLE_RPM) ? IdlePowerW / FMath::Max(1.0f, IdleOmega) : 0.0f;
+
+	// Propeller torque from blade element theory
+	float AirspeedForTorque = 0.0f;
+	if (AActor* ParentActor = GetAttachParentActor())
+		AirspeedForTorque = ParentActor->GetVelocity().Size() / 100.0f;
+	float PropTorque = GetPropTorqueNM(AirspeedForTorque);
+	float PropTorqueAtEngine = PropTorque / PROP_REDUCTION_RATIO;
+
+	// Net torque → angular acceleration → RPM change
+	float EngineInertia = 0.12f;  // kg·m² (crank + flywheel + prop reflected)
+	float NetTorque = EngineTorque + IdleTorque - PropTorqueAtEngine;
+	float AngularAccel = NetTorque / EngineInertia;
+	EngineOmega += AngularAccel * DeltaTime;
+	EngineRPM = EngineOmega * 60.0f / (2.0f * PI);
+	EngineRPM = FMath::Clamp(EngineRPM, 0.0f, REDLINE_RPM);
+}
+
+void AParamotorActor::UpdateEngineTemp(float DeltaTime)
+{
+	// CHT: idle ~75C, full throttle ~110C, thermal tau ~100s
+	float TargetTemp = 75.0f + (EngineRPM / REDLINE_RPM) * 35.0f;
+	EngineTemp = FMath::FInterpTo(EngineTemp, TargetTemp, DeltaTime, 0.01f);
+
+	// EGT: idle ~450C, full throttle ~650C, responds fast (~0.5s)
+	float TargetEGT = 450.0f + (EngineRPM / REDLINE_RPM) * 200.0f;
+	EGT = FMath::FInterpTo(EGT, TargetEGT, DeltaTime, 2.0f);
+}
+
+void AParamotorActor::UpdateFuel(float DeltaTime)
+{
+	// BSFC ≈ 0.4 kg/kW·h, gasoline density ≈ 0.75 kg/L, tank = 10L
+	float BSFC = 0.4f;
+	float FuelDensity = 0.75f;
+	float TankVolumeL = 10.0f;
+	float EffectiveThrottle = FMath::Max(0.0f, (Throttle - 0.1f) / 0.9f);
+	float EnginePowerW = 18500.0f * EffectiveThrottle * FMath::Max(0.0f, EngineRPM / REDLINE_RPM);
+	float PowerKW = EnginePowerW / 1000.0f;
+	float FuelFlowLPerS = PowerKW * BSFC / (3600.0f * FuelDensity);
+	float FuelRate = FuelFlowLPerS / TankVolumeL;
+	FuelLevel -= FuelRate * DeltaTime;
+	FuelLevel = FMath::Clamp(FuelLevel, 0.0f, 1.0f);
+
+	if (FuelLevel <= 0.0f)
+	{
+		StopEngine();
+		UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Out of fuel! Engine stopped"));
+	}
+}
+
+void AParamotorActor::UpdateEngineAudio()
+{
+	float RPMRatio = (EngineRPM - IDLE_RPM) / (REDLINE_RPM - IDLE_RPM);
+	float Pitch = 1.0f + RPMRatio * 1.5f;
+	float EngineVol = 0.8f + Throttle * 1.2f;
+	float ExhaustVol = 0.6f + Throttle * 1.4f;
+
+	EngineAudio->SetPitchMultiplier(Pitch);
+	EngineAudio->SetVolumeMultiplier(EngineVol);
+	ExhaustAudio->SetPitchMultiplier(Pitch * 0.85f);
+	ExhaustAudio->SetVolumeMultiplier(ExhaustVol);
+
+	float PropWindVol = 0.05f + Throttle * 1.45f;
+	float PropWindPitch = 0.28f + RPMRatio * 0.72f;
+	PropWindAudio->SetVolumeMultiplier(PropWindVol);
+	PropWindAudio->SetPitchMultiplier(PropWindPitch);
+}
+
+void AParamotorActor::UpdateEngineSpoolDown(float DeltaTime)
+{
+	// Prop slows down and stops when not running
+	if (EngineRPM > 0.0f)
+	{
+		EngineRPM = FMath::FInterpTo(EngineRPM, 0.0f, DeltaTime, 0.5f);
+		float PropOmega = GetPropRPM() * 2.0f * PI / 60.0f;
+		PropRotation += PropOmega * DeltaTime;
+		UpdatePropMeshRotation();
+	}
+
+	// Engine cools down when off
+	if (EngineTemp > 20.0f)
+	{
+		EngineTemp = FMath::FInterpTo(EngineTemp, 20.0f, DeltaTime, 0.01f);
 	}
 }
 

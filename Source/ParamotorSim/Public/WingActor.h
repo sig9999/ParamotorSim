@@ -675,6 +675,16 @@ protected:
 	// Update dynamic wind (gusts, turbulence, direction shift) — called from both ground and flight
 	void UpdateDynamicWind(float DeltaTime, float GustAmplitude);
 
+	// === GROUND HANDLING HELPERS (split from UpdateInflation) ===
+	// Compute ground-level wind vector (with direction shift and ground gradient)
+	FVector ComputeGroundWind();
+	// Update collapse physics during kiting (frontal, asymmetric, recovery)
+	void UpdateKitingCollapses(float DeltaTime, const FVector& PilotFwd, const FVector& PilotRight);
+
+	// === FLIGHT PHYSICS HELPERS (split from UpdateFlight) ===
+	// Compute thermal lift (m/s) at current position and altitude
+	float ComputeThermalLiftMs(float AltitudeM) const;
+
 	// Shift all particles by a world-space delta (used when moving the actor)
 	void ShiftAllParticles(FVector Shift);
 

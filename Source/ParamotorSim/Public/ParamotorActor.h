@@ -201,6 +201,14 @@ protected:
 	// Rotate prop meshes around the prop shaft (shared by running and spool-down paths)
 	void UpdatePropMeshRotation();
 
+	// === TICK HELPERS (split from Tick for readability) ===
+	void UpdateCranking(float DeltaTime);     // Cranking state — engine catch logic
+	void UpdateEngineRPM(float DeltaTime);    // Running state — RPM dynamics, torque balance
+	void UpdateEngineTemp(float DeltaTime);   // Running state — CHT and EGT
+	void UpdateFuel(float DeltaTime);         // Running state — fuel consumption
+	void UpdateEngineAudio();                 // Running state — sound pitch/volume
+	void UpdateEngineSpoolDown(float DeltaTime); // Not running — prop slows, engine cools
+
 	// Mesh paths for all paramotor parts
 	static const TArray<FString> GetParamotorMeshPaths();
 
