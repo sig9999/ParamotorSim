@@ -398,7 +398,7 @@ P.Pos += Vel;
 P.Pos.Z -= Gravity * DeltaTime * DeltaTime;
 // Ground collision — P.Pos is LOCAL to actor, GZ is WORLD. Convert properly.
 float ActorZ = GetActorLocation().Z;
-float GZ = GetGroundZ(GetActorLocation() + P.Pos);
+float GZ = GetCachedGroundZ(GetActorLocation() + P.Pos);
 float LocalGZ = GZ - ActorZ;  // Convert world ground Z to local space
 if (P.Pos.Z < LocalGZ)		{
 			P.Pos.Z = LocalGZ;
@@ -530,7 +530,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 
 		// Ground collision: wing stays on ground
 		FVector NewPos = WingPos + WingGroundVel * DeltaTime;
-		float GZ = GetGroundZ(NewPos);
+		float GZ = GetCachedGroundZ(NewPos);
 		if (NewPos.Z < GZ)
 		{
 			NewPos.Z = GZ;
@@ -618,7 +618,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		float HorizDist = HorizToWing.Size();
 		float HeightAboveCarab = WingPos.Z - CarabMid.Z;
 		float DistFromCarab = ToWingFromCarab.Size();
-		float GroundZ = GetGroundZ(WingPos);
+		float GroundZ = GetCachedGroundZ(WingPos);
 		float HeightAboveGround = WingPos.Z - GroundZ;
 		float PendAngle = FMath::Atan2(HorizDist, FMath::Max(1.0f, FMath::Abs(HeightAboveCarab)));
 
@@ -937,7 +937,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		}
 
 		// === GROUND COLLISION ===
-		float GZ = GetGroundZ(NewWingPos);
+		float GZ = GetCachedGroundZ(NewWingPos);
 		if (NewWingPos.Z < GZ)
 		{
 			NewWingPos.Z = GZ;

@@ -528,7 +528,7 @@ float LineDragAccel = (LineDragN / FMath::Max(0.0001f, LP.Mass)) * CM_PER_M;
 LP.Pos += ApparentWindDir * LineDragAccel * DeltaTime * DeltaTime;
 // Ground collision (in world space)
 FVector WorldPos = GetActorLocation() + LP.Pos;
-float GZ = GetGroundZ(WorldPos);
+float GZ = GetCachedGroundZ(WorldPos);
 if (WorldPos.Z < GZ)			{
 				LP.Pos.Z = GZ - GetActorLocation().Z;
 LP.OldPos.Z = LP.Pos.Z;
@@ -554,7 +554,7 @@ FVector RiserWorldPos = ActorTransform.TransformPosition(LineParticles[RiserIdx2
 float HangDist = 26.0f + BrakeAmount * 40.0f;
 FVector HandleWorldPos = RiserWorldPos - FVector(0, 0, HangDist);
 // Don't let handle go below ground
-float GZ = GetGroundZ(HandleWorldPos);
+float GZ = GetCachedGroundZ(HandleWorldPos);
 if (HandleWorldPos.Z < GZ)				HandleWorldPos.Z = GZ;
 FVector HandleLocalPos = ActorTransform.InverseTransformPosition(HandleWorldPos);
 LineParticles[HandleIdx].Pos = HandleLocalPos;
@@ -717,18 +717,7 @@ if (WingDist > MaxDist)		{
 FVector DragDir = ToWing.GetSafeNormal();
 FVector Shift = -DragDir * Excess;
 SetActorLocation(ActorLoc + Shift, false);
-for (int32 i = 0; i < Particles.Num(); i++)			{
-				if (!Particles[i].bPinned && !Particles[i].bGrabbed)				{
-					Particles[i].Pos += Shift;
-Particles[i].OldPos += Shift;
-}
-}
-			for (int32 i = 0; i < LineParticles.Num(); i++)			{
-				if (!LineParticles[i].bPinned)				{
-					LineParticles[i].Pos += Shift;
-LineParticles[i].OldPos += Shift;
-}
-}
+ShiftAllParticles(Shift);
 }
 }
 }

@@ -336,7 +336,6 @@ void AParamotorCharacter::Tick(float DeltaTime)
 	// movement penalties are available in the get-up-from-fall section.
 	HealInjury(DeltaTime);
 	float EffectiveMaxSpeed = CurrentMaxSpeed * InjuryMaxSpeedMultiplier;
-	float EffectiveJumpZ = 420.0f * InjuryJumpMultiplier;
 
 	// === Fall handling — early out when fallen ===
 	// Process ragdoll/get-up logic first, then skip all normal movement code

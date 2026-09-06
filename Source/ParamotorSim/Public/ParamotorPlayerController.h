@@ -90,7 +90,7 @@ public:
 
 	/** The currently spawned wing actor */
 	UPROPERTY()
-	AWingActor* SpawnedWingActor;
+	AWingActor* SpawnedWingActor = nullptr;
 
 protected:
 	UPROPERTY()

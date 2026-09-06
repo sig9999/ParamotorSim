@@ -110,7 +110,7 @@ private:
 
 	// Audio
 	UPROPERTY()
-	UAudioComponent* FootstepAudio;
+	UAudioComponent* FootstepAudio = nullptr;
 
 	// Footstep sounds separated by surface type and intensity
 	UPROPERTY()
@@ -126,11 +126,11 @@ private:
 	TArray<class USoundBase*> DirtFootstepHeavySounds;
 
 	UPROPERTY()
-	UAudioComponent* WindAmbientAudio;
+	UAudioComponent* WindAmbientAudio = nullptr;
 
 	// Fall sound
 	UPROPERTY()
-	UAudioComponent* FallAudio;
+	UAudioComponent* FallAudio = nullptr;
 
 	bool bSprintRequested = false;
 	float CurrentMaxSpeed = 200.0f;
@@ -138,7 +138,6 @@ private:
 
 	// Footstep timing
 	float FootstepTimer = 0.0f;
-	float FootstepInterval = 0.5f;
 	bool bWasMoving = false;
 
 	// Trip/fall state
@@ -149,7 +148,6 @@ private:
 	float FallRecoveryTime = 2.5f; // Seconds on ground before getting up
 	float GetUpBlendTime = 1.0f; // Seconds to blend from ragdoll to standing
 	float GetUpTimer = 0.0f;
-	FVector RagdollVelocity;
 	FQuat SavedRagdollQuat;
 	FVector SavedRagdollLocation;
 	float TripRiskAccumulator = 0.0f; // Accumulates trip risk while running with high thrust
