@@ -406,19 +406,19 @@ void AParamotorActor::UpdateCranking(float DeltaTime)
 		if (StarterTimer >= 1.0f)
 		{
 			EngineState = EEngineState::Running;
-			StarterAudio->Stop();
+			if (StarterAudio) StarterAudio->Stop();
 
-			EngineAudio->Play();
-			ExhaustAudio->Play();
-			PropWindAudio->Play();
+			if (EngineAudio) EngineAudio->Play();
+			if (ExhaustAudio) ExhaustAudio->Play();
+			if (PropWindAudio) PropWindAudio->Play();
 
 			// Idle volume - paramotors are LOUD (~100+ dB at idle)
-			EngineAudio->SetVolumeMultiplier(1.5f);
-			EngineAudio->SetPitchMultiplier(1.0f);
-			ExhaustAudio->SetVolumeMultiplier(1.2f);
-			ExhaustAudio->SetPitchMultiplier(1.0f);
-			PropWindAudio->SetVolumeMultiplier(0.3f);
-			PropWindAudio->SetPitchMultiplier(0.28f);
+			if (EngineAudio) EngineAudio->SetVolumeMultiplier(1.5f);
+			if (EngineAudio) EngineAudio->SetPitchMultiplier(1.0f);
+			if (ExhaustAudio) ExhaustAudio->SetVolumeMultiplier(1.2f);
+			if (ExhaustAudio) ExhaustAudio->SetPitchMultiplier(1.0f);
+			if (PropWindAudio) PropWindAudio->SetVolumeMultiplier(0.3f);
+			if (PropWindAudio) PropWindAudio->SetPitchMultiplier(0.28f);
 
 			UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Engine caught! Running at throttle=%.2f"), Throttle);
 		}
@@ -503,15 +503,24 @@ void AParamotorActor::UpdateEngineAudio()
 	float EngineVol = 0.8f + Throttle * 1.2f;
 	float ExhaustVol = 0.6f + Throttle * 1.4f;
 
-	EngineAudio->SetPitchMultiplier(Pitch);
-	EngineAudio->SetVolumeMultiplier(EngineVol);
-	ExhaustAudio->SetPitchMultiplier(Pitch * 0.85f);
-	ExhaustAudio->SetVolumeMultiplier(ExhaustVol);
+	if (EngineAudio)
+	{
+		EngineAudio->SetPitchMultiplier(Pitch);
+		EngineAudio->SetVolumeMultiplier(EngineVol);
+	}
+	if (ExhaustAudio)
+	{
+		ExhaustAudio->SetPitchMultiplier(Pitch * 0.85f);
+		ExhaustAudio->SetVolumeMultiplier(ExhaustVol);
+	}
 
 	float PropWindVol = 0.05f + Throttle * 1.45f;
 	float PropWindPitch = 0.28f + RPMRatio * 0.72f;
-	PropWindAudio->SetVolumeMultiplier(PropWindVol);
-	PropWindAudio->SetPitchMultiplier(PropWindPitch);
+	if (PropWindAudio)
+	{
+		PropWindAudio->SetVolumeMultiplier(PropWindVol);
+		PropWindAudio->SetPitchMultiplier(PropWindPitch);
+	}
 }
 
 void AParamotorActor::UpdateEngineSpoolDown(float DeltaTime)

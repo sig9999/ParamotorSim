@@ -487,24 +487,26 @@ void AParamotorPlayerController::UpdateRotation(float DeltaTime)
 
 	bool bWingFlying = (SpawnedWingActor && SpawnedWingActor->IsFlying());
 
-	if (bWingFlying && GetPawn())
+	if (bWingFlying)
 	{
-		// Save the pawn's current rotation (set by WingActor)
-		FRotator SavedRot = GetPawn()->GetActorRotation();
+		if (APawn* FlightPawn = GetPawn())
+		{
+			// Save the pawn's current rotation (set by WingActor)
+			FRotator SavedRot = FlightPawn->GetActorRotation();
 
-		// Let the base class update control rotation from mouse input
-		// It will also call FaceRotation, but with bUseControllerRotationYaw=false
-		// (set during takeoff), FaceRotation won't override the pawn's rotation.
-		Super::UpdateRotation(DeltaTime);
+			// Let the base class update control rotation from mouse input
+			// It will also call FaceRotation, but with bUseControllerRotationYaw=false
+			// (set during takeoff), FaceRotation won't override the pawn's rotation.
+			Super::UpdateRotation(DeltaTime);
 
-		// Force-restore the pawn's rotation in case anything touched it
-		GetPawn()->SetActorRotation(SavedRot);
+			// Force-restore the pawn's rotation in case anything touched it
+			FlightPawn->SetActorRotation(SavedRot);
+			return;
+		}
 	}
-	else
-	{
-		// Ground mode: normal controller rotation behavior
-		Super::UpdateRotation(DeltaTime);
-	}
+
+	// Ground mode: normal controller rotation behavior
+	Super::UpdateRotation(DeltaTime);
 }
 
 void AParamotorPlayerController::Tick(float DeltaTime)
@@ -682,8 +684,7 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 	else
 	{
 		// Clear arm IK when not connected
-		APawn* MyPawn4 = GetPawn();
-		AParamotorCharacter* Char4 = Cast<AParamotorCharacter>(MyPawn4);
+		AParamotorCharacter* Char4 = CachedPawn ? Cast<AParamotorCharacter>(CachedPawn) : nullptr;
 		if (Char4) Char4->ClearBrakeArmTargets();
 	}
 }

@@ -383,7 +383,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 				GetUpTimer = 0.0f;
 				FallTimer = 0.0f;
 				TripRiskAccumulator = 0.0f;
-				if (GetCharacterMovement())
+				if (CMC)
 				{
 					CMC->SetMovementMode(MOVE_Walking);
 					CMC->MaxWalkSpeed = EffectiveMaxSpeed;
@@ -1033,8 +1033,11 @@ void AParamotorCharacter::Trip()
 	FVector LaunchVel = GetVelocity();
 
 	// Stop character movement
-	GetCharacterMovement()->StopMovementImmediately();
-	GetCharacterMovement()->DisableMovement();
+	if (UCharacterMovementComponent* TripCMC = GetCharacterMovement())
+	{
+		TripCMC->StopMovementImmediately();
+		TripCMC->DisableMovement();
+	}
 
 	// === Enable ragdoll on the mesh ===
 	// Re-enable physics and collision for the skeletal mesh

@@ -360,7 +360,8 @@ void AWingActor::UpdateDynamicWind(float DeltaTime, float GustAmplitude)
 		Pawn = Cast<APawn>(ConnectedParamotor->GetAttachParentActor());
 	if (Pawn)
 	{
-		float AltM = (Pawn->GetActorLocation().Z - GetCachedGroundZ(Pawn->GetActorLocation())) / CM_PER_M;
+		const FVector PawnLoc = Pawn->GetActorLocation();
+		float AltM = (PawnLoc.Z - GetCachedGroundZ(PawnLoc)) / CM_PER_M;
 		TurbScaleLength = FMath::Lerp(150.0f, 500.0f, FMath::Clamp(AltM / 1000.0f, 0.0f, 1.0f));
 	}
 
@@ -551,7 +552,8 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
         DesiredPitch -= CellFillFactor * 5.0f;
         DesiredPitch = FMath::Clamp(DesiredPitch, -90.0f, 0.0f);
     }
-    float CurrentYaw = GetActorRotation().Yaw;
+    const FRotator CurrentRot = GetActorRotation();
+    float CurrentYaw = CurrentRot.Yaw;
     float YawDiff2 = DesiredYaw - CurrentYaw;
     while (YawDiff2 > 180.0f) YawDiff2 -= 360.0f;
     while (YawDiff2 < -180.0f) YawDiff2 += 360.0f;
@@ -561,11 +563,11 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
     float RotSpeed = FMath::Abs(ActiveYawRate);
     float RotStep = FMath::Clamp(YawDiff2, -RotSpeed * DeltaTime, RotSpeed * DeltaTime);
     // Pitch: use KitePitchOvershoot (integrated from pendulum geometry in SimulateCloth)
-    float CurrentPitch = GetActorRotation().Pitch;
+    float CurrentPitch = CurrentRot.Pitch;
     float PitchStep = FMath::FInterpTo(CurrentPitch, DesiredPitch + KitePitchOvershoot, DeltaTime, 8.0f) - CurrentPitch;
     if (FMath::Abs(RotStep) > 0.1f || FMath::Abs(PitchStep) > 0.1f)
     {
-        FRotator NewRot = GetActorRotation();
+        FRotator NewRot = CurrentRot;
         NewRot.Yaw += RotStep;
         NewRot.Pitch += PitchStep;
         SetActorRotation(NewRot);
@@ -578,6 +580,9 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
 }
 	UpdateInflation(DeltaTime);
 UpdateFlight(DeltaTime);
+	// Post-update wing location (may have changed during UpdateInflation/UpdateFlight)
+	const FVector PostUpdateLoc = GetActorLocation();
+
 	// Debug: log position at end of Tick
 	if (WingState == EWingState::Inflating)
 	{
@@ -585,14 +590,14 @@ UpdateFlight(DeltaTime);
 		if (EndLogTimer > 0.2f)
 		{
 			EndLogTimer = 0.0f;
-			UE_LOG(LogTemp, Warning, TEXT("END_TICK: posZ=%.0f velZ=%.0f state=%d"), GetActorLocation().Z, WingVel.Z, (int32)WingState);
+			UE_LOG(LogTemp, Warning, TEXT("END_TICK: posZ=%.0f velZ=%.0f state=%d"), PostUpdateLoc.Z, WingVel.Z, (int32)WingState);
 		}
 	}
 
 	// Notify paramotor of wing position so A-arms can follow
 	if (ConnectedParamotor)
 	{
-		ConnectedParamotor->UpdateWingTarget(GetActorLocation(), bRisersConnected);
+		ConnectedParamotor->UpdateWingTarget(PostUpdateLoc, bRisersConnected);
 	}
 
 UpdateCanopyMesh();
