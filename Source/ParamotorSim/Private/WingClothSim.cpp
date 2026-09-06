@@ -420,9 +420,7 @@ P.Pos = Target;
 	// When inflated, the canopy shape is set by SetInflatedShape() and maintained directly.
 	// Running constraints would deform it back toward the flat laid-out shape.
 	float ConstraintStiffnessScale = 1.0f;
-	bool bSkipConstraints = (WingState == EWingState::Inflating && bLiftingALines) ||
-		(WingState == EWingState::Inflated || WingState == EWingState::Flying);
-	if (!bSkipConstraints)	{
+	if (!bSkipCanopyPhysics)	{
 		for (int32 iter = 0; iter < ConstraintIterations; iter++)		{
 			for (const FClothConstraint& C : Constraints)			{
 				if (C.A >= Particles.Num() || C.B >= Particles.Num()) continue;

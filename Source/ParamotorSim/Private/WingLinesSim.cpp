@@ -465,14 +465,7 @@ if (RightCarabinerIdx >= 0) LineParticles[RightCarabinerIdx].bPinned = false;
 // Carabiners are pinned to follow the harness.
 // Everything else is physics: gravity, wind drag, constraint solving.
 if (bRisersConnected)	{
-    // Pin canopy attachment points to follow canopy particles
-    for (const FLineAttachment& Att : LineAttachments)	{
-        if (Att.CanopyParticleIdx >= 0 && Att.CanopyParticleIdx < Particles.Num())	{
-            FVector CanopyLocalPos = Particles[Att.CanopyParticleIdx].Pos;
-            LineParticles[Att.LineParticleIdx].Pos = CanopyLocalPos;
-            LineParticles[Att.LineParticleIdx].OldPos = CanopyLocalPos;
-        }
-    }
+    // Canopy attachment points already pinned above (line 400)
 }
 	// Verlet integration for ALL line particles (including during flight)
 	// Lines are real physical objects with mass, gravity, and wind drag.
