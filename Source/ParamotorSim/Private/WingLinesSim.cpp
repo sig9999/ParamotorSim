@@ -422,17 +422,20 @@ FVector LocalPos = ActorTransform.InverseTransformPosition(CarabWorldPos);
 LineParticles[CarabIdx].Pos = LocalPos;
 LineParticles[CarabIdx].OldPos = LocalPos;
 LineParticles[CarabIdx].bPinned = true;
-// Riser: 49cm from carabiner, pointing UP (rigid webbing strap).
-// The riser is a fixed-length strap that hangs from the carabiner.
-// It does NOT follow the wing direction — it always points up from
-// the carabiner. The lines above the riser connect to the wing.
-// When the wing is on the ground behind the pilot, the riser points
-// up and the lines drape down from the riser top to the wing.
-// When the wing is inflated overhead, the riser points up and the
-// lines go from the riser top up to the canopy.
+// Riser: fixed-length webbing strap from carabiner toward the wing.
+// Real risers are rigid straps that follow the line of tension — they
+// do NOT always point straight up. When the wing is on the ground behind
+// the pilot, the riser points backward toward the wing. When flying,
+// the riser points up toward the wing overhead.
 if (RiserIdx >= 0 && RiserIdx < LineParticles.Num())			{
-				// Riser always points straight up from carabiner (rigid strap)
-				FVector RiserWorldPos = CarabWorldPos + FVector(0, 0, RISER_LENGTH_CM);
+				FVector ToWing = WingWorldPos - CarabWorldPos;
+				float DistToWing = ToWing.Size();
+				FVector RiserDir;
+				if (DistToWing > 1.0f)
+					RiserDir = ToWing / DistToWing;
+				else
+					RiserDir = FVector::UpVector;
+				FVector RiserWorldPos = CarabWorldPos + RiserDir * RISER_LENGTH_CM;
 				FVector RiserLocalPos = ActorTransform.InverseTransformPosition(RiserWorldPos);
 				LineParticles[RiserIdx].Pos = RiserLocalPos;
 				LineParticles[RiserIdx].OldPos = RiserLocalPos;

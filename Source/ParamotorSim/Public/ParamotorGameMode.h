@@ -27,11 +27,4 @@ private:
 
 	UPROPERTY()
 	UAudioComponent* OceanAudio;
-
-	// Creates a high-quality landscape material at runtime using grass + dirt textures
-	// with slope-based blending (flat = grass, steep = dirt)
-	UMaterialInstanceDynamic* CreateLandscapeMaterial();
-
-	// Scatters grass mesh instances around the spawn area for 3D grass effect
-	void ScatterGrassMeshes();
 };
