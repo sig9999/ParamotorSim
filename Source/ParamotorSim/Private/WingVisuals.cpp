@@ -22,6 +22,7 @@
 
 void AWingActor::UpdateCanopyMesh(){
 	if (Particles.Num() == 0) return;
+	if (!CanopyMesh) return;
 TArray<FVector> Verts;
 TArray<int32> Tris;
 TArray<FVector> Normals;
@@ -194,7 +195,7 @@ else			Normals[i] = FVector(0, 0, 1);
 for (int32 i = 0; i < PGWingTriCount * 3; i++)		Tris[i] = PGWingTriangles[i];
 CanopyMesh->CreateMeshSection_LinearColor(0, Verts, Tris, Normals, UVs, Colors, Tangents, false);
 CanopyMesh->SetMeshSectionVisible(0, true);
-if (CanopyMaterial)		CanopyMesh->SetMaterial(0, CanopyMaterial);
+if (CanopyMaterial && !bCanopyMaterialApplied)	{ CanopyMesh->SetMaterial(0, CanopyMaterial); bCanopyMaterialApplied = true; }
 }
 
 // ============================================================
@@ -202,6 +203,7 @@ if (CanopyMaterial)		CanopyMesh->SetMaterial(0, CanopyMaterial);
 // ============================================================
 
 void AWingActor::UpdateLineMesh(){
+	if (!LineMesh) return;
 	if (LineParticles.Num() == 0)	{
 		LineMesh->ClearAllMeshSections();
 return;
@@ -304,9 +306,10 @@ AddCylinder(PA.Pos, PB.Pos, Radius, Color);
 LineMesh->CreateMeshSection_LinearColor(0, Verts, Tris, Normals, UVs, Colors, Tangents, false);
 	LineMesh->SetMeshSectionVisible(0, true);
 	// Use cached line material (loaded once in BeginPlay, not per-frame)
-	if (LineMaterial)
+	if (LineMaterial && !bLineMaterialApplied)
 	{
 		LineMesh->SetMaterial(0, LineMaterial);
+		bLineMaterialApplied = true;
 	}
 }
 
@@ -315,9 +318,9 @@ LineMesh->CreateMeshSection_LinearColor(0, Verts, Tris, Normals, UVs, Colors, Ta
 // ============================================================
 
 void AWingActor::SetSpreadState(){
-	CanopyMesh->SetVisibility(true);
-LineMesh->SetVisibility(true);
-BagMesh->SetVisibility(false);
+	if (CanopyMesh) CanopyMesh->SetVisibility(true);
+	if (LineMesh) LineMesh->SetVisibility(true);
+	if (BagMesh) BagMesh->SetVisibility(false);
 }
 
 void AWingActor::SetInflatedShape(){

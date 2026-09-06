@@ -510,7 +510,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			if (CharMassForRun <= 0.0f) CharMassForRun = 100.0f;
 			float TotalMass = CharMassForRun + 7.5f;  // +wing(6kg) + lines(1.5kg) approx
 			float RollingMu = 0.4f;  // Rubber soles on grass (consistent with WingGroundHandling)
-			float RollingResistanceN = RollingMu * TotalMass * 9.81f;  // mu * N
+			float RollingResistanceN = RollingMu * TotalMass * GRAVITY_MS2;  // mu * N
 			float MaxRunSpeedMs = (RollingResistanceN > 1.0f) ? PilotLegPowerW / RollingResistanceN : 8.0f;
 			MaxRunSpeedMs = FMath::Clamp(MaxRunSpeedMs, 1.5f, 12.0f);  // Physical human bounds
 			const float MaxRunSpeed = MaxRunSpeedMs * 100.0f;  // cm/s
@@ -674,9 +674,9 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			}
 			else
 			{
-				ThrustN = CurrentThrust * 736.0f;  // Fallback: max thrust at full throttle
+				ThrustN = CurrentThrust * MAX_THRUST_N;  // Fallback: max thrust at full throttle
 			}
-			float GravityN = CharMass * 9.81f;
+			float GravityN = CharMass * GRAVITY_MS2;
 			float ThrustLeanRad = FMath::Atan2(ThrustN * ThrustHeightM, GravityN * CGOffsetM);
 			float ThrustLean = ThrustLeanRad * 180.0f / PI;
 			// Forward momentum provides a restoring moment (inertia straightens pilot)
@@ -846,14 +846,14 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			ThrustForceN = PC->GetSpawnedParamotorActor()->GetThrustForceN(AirspeedMs);
 		}
 		float ThrustMoment = ThrustForceN * ThrustHeightM;
-		float RestoringMoment = PilotMassKg * 9.81f * FootOffsetM;
+		float RestoringMoment = PilotMassKg * GRAVITY_MS2 * FootOffsetM;
 		// Net moment: positive = tipping forward (trip risk)
 		float NetMoment = (ThrustMoment - RestoringMoment) * TripRiskMultiplier;
 		if (NetMoment > 0.0f)
 		{
 			// Accumulate trip risk proportional to moment imbalance
 			// Normalize by a reference moment (pilot weight × 0.1m)
-			float RefMoment = PilotMassKg * 9.81f * FootOffsetM;  // Use actual FootOffsetM
+			float RefMoment = PilotMassKg * GRAVITY_MS2 * FootOffsetM;  // Use actual FootOffsetM
 			TripRiskAccumulator += (NetMoment / RefMoment) * DeltaTime;
 		}
 		else

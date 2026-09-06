@@ -98,7 +98,7 @@ ELineLevel::Brake, TabBrake_ChordT, 0.12f, FLinearColor(0.9f, 0.45f, 0.0f, 1.0f)
 float RiserRadius = 0.5f;
 float CarabinerRadius = 0.4f;
 // Real MacPara Charger riser length: 52.5cm (525mm neutral position)
-float RiserLength = 52.5f;
+float RiserLength = RISER_LENGTH_CM;
 // Compute half-span from mesh geometry for span-dependent line lengths
 float MaxRibY = 0.0f;
 for (int32 rib = 0; rib < PGNumRibs; rib++)
@@ -602,12 +602,12 @@ int32 CarabIdx = (Att.Side == 0) ? LeftCarabinerIdx : RightCarabinerIdx;
 float TotalLineLen = 745.0f;  // Default from Charger 25M data
 switch ((ELineLevel)Att.Level)
 {
-case ELineLevel::A:     TotalLineLen = 52.5f + 688.8f; break;  // 741.3cm
-case ELineLevel::B:     TotalLineLen = 52.5f + 682.4f; break;  // 734.9cm
-case ELineLevel::C:     TotalLineLen = 52.5f + 689.6f; break;  // 742.1cm
-case ELineLevel::D:     TotalLineLen = 52.5f + 708.0f; break;  // 760.5cm
-case ELineLevel::E:     TotalLineLen = 52.5f + 720.5f; break;  // 773.0cm
-case ELineLevel::Brake: TotalLineLen = 52.5f + 719.0f; break;  // 771.5cm
+case ELineLevel::A:     TotalLineLen = RISER_LENGTH_CM + 688.8f; break;  // 741.3cm
+case ELineLevel::B:     TotalLineLen = RISER_LENGTH_CM + 682.4f; break;  // 734.9cm
+case ELineLevel::C:     TotalLineLen = RISER_LENGTH_CM + 689.6f; break;  // 742.1cm
+case ELineLevel::D:     TotalLineLen = RISER_LENGTH_CM + 708.0f; break;  // 760.5cm
+case ELineLevel::E:     TotalLineLen = RISER_LENGTH_CM + 720.5f; break;  // 773.0cm
+case ELineLevel::Brake: TotalLineLen = RISER_LENGTH_CM + 719.0f; break;  // 771.5cm
 }
 if (CarabIdx < 0 || CarabIdx >= LineParticles.Num()) continue;
 // Canopy particle position in world space

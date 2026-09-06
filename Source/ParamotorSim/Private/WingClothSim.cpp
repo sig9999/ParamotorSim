@@ -518,7 +518,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 
 		// Ground friction: μ × N for fabric on grass (μ ≈ 0.4)
 		float FrictionMu = 0.4f;  // Fabric on grass
-		float WingNormalN = EffectiveMassKg * 9.81f;  // Weight = normal force on ground
+		float WingNormalN = EffectiveMassKg * GRAVITY_MS2;  // Weight = normal force on ground
 		FVector GroundFrictionForce = -WingVel2D.GetSafeNormal() * FrictionMu * WingNormalN / EffectiveMassKg * CM_PER_M;
 
 		// Gravity (keeps wing on ground)
@@ -658,7 +658,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// Apparent mass scales with fill: empty wing = just fabric, full = fabric + air
 		float ApparentMassKg = WingMassKg * 0.5f + WingMassKg * 3.0f * CellFillFactor;
 		float EffectiveMassKg = WingMassKg + ApparentMassKg;  // Used for F=ma (inertia)
-		float WingWeightN = WingMassKg * 9.81f;  // Used for F=mg (gravity only on real mass)
+		float WingWeightN = WingMassKg * GRAVITY_MS2;  // Used for F=mg (gravity only on real mass)
 
 		// === FORCE 1: A-LINE PULL (pilot arm force on leading edge) ===
 		// In real life, the pilot pulls the A-risers to lift the leading edge

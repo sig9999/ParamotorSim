@@ -432,7 +432,7 @@ float LiftN = LeftLiftN + RightLiftN;
 // During flight, lines are taut (pilot hanging from wing), so tension = 1.0.
 // But if cells deflate (e.g. from collapse), lift drops quadratically.
 float LocalTotalMassKg = PilotWeight + WingModel.WingWeight + 1.5f;  // pilot + wing + lines
-LineTensionFraction = FMath::Clamp(LiftN / FMath::Max(1.0f, LocalTotalMassKg * 9.81f), 0.0f, 1.0f);
+LineTensionFraction = FMath::Clamp(LiftN / FMath::Max(1.0f, LocalTotalMassKg * GRAVITY_MS2), 0.0f, 1.0f);
 float FillTensionCoupling = CellFillFactor * CellFillFactor * LineTensionFraction;
 LiftN *= FillTensionCoupling;
 LeftLiftN *= FillTensionCoupling;
@@ -567,7 +567,7 @@ float CLScaleTrim = FMath::Abs(BaseCLMax - BaseCL0) > 1e-3f
     ? (WingModel.CLMax - WingModel.CL0) / (BaseCLMax - BaseCL0) : 1.0f;
 float CLTrim = (PolarCLTrim - BaseCL0) * CLScaleTrim + WingModel.CL0;
 CLTrim = FMath::Max(0.01f, CLTrim);  // Division-by-zero guard only
-float TotalWeightN = TotalMassKg * 9.81f;
+float TotalWeightN = TotalMassKg * GRAVITY_MS2;
 TrimSpeedMs = FMath::Sqrt(2.0f * TotalWeightN / (Rho * WingModel.WingArea * CLTrim));
 // Trimmer speed factor adjusts CL (fast trim = lower CL = higher speed)
 TrimSpeedMs *= GetTrimmerSpeedFactor();
@@ -734,7 +734,7 @@ LaunchAngleOffset = 5.0f * LaunchAngleFade;  // Up to 5° forward tilt from torq
 float WeightShiftCGOffset = WeightShift * 0.17f;  // Max 17cm lateral CG shift (harness geometry)
 // Gravity roll moment from weight shift: M = m * g * dx (N·m)
 // Real torque, not an angle — integrated through roll dynamics below
-float WeightShiftRollMoment = PilotWeight * 9.81f * WeightShiftCGOffset;
+float WeightShiftRollMoment = PilotWeight * GRAVITY_MS2 * WeightShiftCGOffset;
 // === WING INERTIA (needed for yaw/roll moment integration) ===
 float FlightApparentMassKg = Rho * WingModel.WingArea * (WingspanM * 0.5f) * CellFillFactor * 0.5f;
 float FlightEffectiveMassKg = WingModel.WingWeight + FlightApparentMassKg;
@@ -785,7 +785,7 @@ float CollapseRollMoment = (RightCollapseAmount - LeftCollapseAmount) * LiftN * 
 // 4. Prop torque (PropTorqueNM, computed above)
 // 5. Coordination spring: pendulum pulls bank toward coordinated angle
 //    Spring constant = I · ω² where ω = √(g/L) is pendulum frequency
-float PendulumOmegaRoll = FMath::Sqrt(9.81f / (LINE_LENGTH_CM / 100.0f));  // rad/s
+float PendulumOmegaRoll = FMath::Sqrt(GRAVITY_MS2 / (LINE_LENGTH_CM / 100.0f));  // rad/s
 float CoordSpringMoment = WingInertiaRoll * PendulumOmegaRoll * PendulumOmegaRoll
 	* (TargetBank - CurrentRoll) * PI / 180.0f;  // N·m
 // 6. Turbulence roll moment: lateral gusts create asymmetric lift across the span
@@ -846,7 +846,7 @@ float PitchTarget = 0.0f;
 // Thrust pitch: REMOVED — handled by pendulum dynamics + 1:1 pendulum coupling
 // (thrust drives PendulumAngle, which drives PitchTarget through the coupling below)
 // Collapse causes wing to pitch forward (surge from lift loss)
-	PitchTarget -= FrontalCollapseAmount * FMath::Atan2(LiftN * 0.25f * WingspanM, TotalMassKg * 9.81f * (LINE_LENGTH_CM / 100.0f)) * 180.0f / PI;
+	PitchTarget -= FrontalCollapseAmount * FMath::Atan2(LiftN * 0.25f * WingspanM, TotalMassKg * GRAVITY_MS2 * (LINE_LENGTH_CM / 100.0f)) * 180.0f / PI;
 // Speed-pitch: apparent wind shift at higher speeds (geometric)
 // θ = atan(ΔV / V) — wing pitches forward to reduce AoA at higher speed
 if (Vms > 1.0f && SpeedError > 0.0f)
@@ -1229,7 +1229,7 @@ float AWingActor::ComputeThermalLiftMs(float AltitudeM) const
 	float ThermalLiftMs = 0.0f;
 	if (TempExcess > 0.1f && AltitudeM > 1.0f)
 	{
-		ThermalLiftMs = FMath::Sqrt(2.0f * 9.81f * TempExcess / AmbientTempK * AltitudeM);
+		ThermalLiftMs = FMath::Sqrt(2.0f * GRAVITY_MS2 * TempExcess / AmbientTempK * AltitudeM);
 	}
 
 	// Thermal field: localized columns, not uniform
@@ -1275,7 +1275,7 @@ bool AWingActor::HandleLanding(ACharacter* Char, float DeltaTime, FVector& NewVe
 	float LandingHorizSpeed = FMath::Sqrt(NewVel.X * NewVel.X + NewVel.Y * NewVel.Y);
 	float CollisionDurationS = 0.1f;  // Leg impact absorption time
 	float DecelForce = TotalMassKg * LandingSpeedMs / CollisionDurationS;
-	float NormalForce = TotalMassKg * 9.81f + DecelForce;
+	float NormalForce = TotalMassKg * GRAVITY_MS2 + DecelForce;
 	float FrictionDecel = FrictionCoeff * NormalForce * DeltaTime * 100.0f;
 	if (LandingHorizSpeed > 0.0f)
 	{

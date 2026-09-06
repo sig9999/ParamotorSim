@@ -624,8 +624,10 @@ protected:
 	// === Materials ===
 	UPROPERTY()
 	UMaterialInterface* CanopyMaterial = nullptr;
+	bool bCanopyMaterialApplied = false;  // Set material once, not per-frame
 	UPROPERTY()
 	UMaterialInterface* LineMaterial = nullptr;  // Cached line mesh material (was per-frame LoadObject)
+	bool bLineMaterialApplied = false;  // Set material once, not per-frame
 	// CanopyMID removed (was unused)
 	// WingLight removed (was unused)
 

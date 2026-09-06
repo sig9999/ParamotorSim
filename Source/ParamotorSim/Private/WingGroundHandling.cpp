@@ -151,7 +151,7 @@ float GroundEffectDragFactor = FMath::Exp(-HeightAboveGround / (WingspanM * 0.5f
 // Weight — total suspended weight. PilotWeight already includes paramotor + fuel
 // (set by ParamotorPlayerController). Only add wing + lines here.
 float TotalMassKg = PilotWeight + WingModel.WingWeight + 1.5f;  // +1.5kg lines
-float WeightN = TotalMassKg * 9.81f;
+float WeightN = TotalMassKg * GRAVITY_MS2;
 float WeightSupport = LiftN / WeightN;
 // === SKIP/HOP PHYSICS ===
 // When lift is 60-100% of weight, the pilot is very light on their feet.
@@ -219,7 +219,7 @@ if (bWasOnGround && TakeoffSkipZ < PrevSkipZ - 1.0f)				{
 		Char->GetCharacterMovement()->MaxWalkSpeed = MaxRunSpeed;
 // === STALL SPEED (for HUD display) ===
 float StallDenom = Rho * WingModel.WingArea * WingModel.CLMax;
-float StallSpeedMs = StallDenom > 0.0f ? FMath::Sqrt(2.0f * TotalMassKg * 9.81f / StallDenom) : 8.0f;
+float StallSpeedMs = StallDenom > 0.0f ? FMath::Sqrt(2.0f * TotalMassKg * GRAVITY_MS2 / StallDenom) : 8.0f;
 float TakeoffSpeedMs = StallSpeedMs;
 // Need full stall speed to truly fly
 // Store debug values
@@ -452,7 +452,7 @@ CurrentAirspeed = FMath::Max(0.0f, Headwind);
 }
 	// Takeoff speed from stall speed (derived from wing model + mass)
 float StallDenom = AIR_DENSITY_SEA_LEVEL * WingModel.WingArea * WingModel.CLMax;
-float TakeoffSpeed = StallDenom > 0.0f ? FMath::Sqrt(2.0f * (PilotWeight + WingModel.WingWeight + 1.5f) * 9.81f / StallDenom) : 5.4f;
+float TakeoffSpeed = StallDenom > 0.0f ? FMath::Sqrt(2.0f * (PilotWeight + WingModel.WingWeight + 1.5f) * GRAVITY_MS2 / StallDenom) : 5.4f;
 float SpeedFactor = FMath::Clamp(CurrentAirspeed / TakeoffSpeed, 0.0f, 1.5f);
 // Throttle factor: need at least 25% throttle
 float ThrottleFactor = (ThrottleAmount > 0.25f) ? 1.0f : ThrottleAmount / 0.25f;
