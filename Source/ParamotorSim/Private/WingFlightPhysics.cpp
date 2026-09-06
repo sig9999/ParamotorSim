@@ -103,7 +103,7 @@ EffectiveRightBrake = FMath::FInterpTo(EffectiveRightBrake, RightBrakeAmount, De
 // At 10m: 1.0x, at 50m: ~1.25x, at 100m: ~1.41x
 
 float EarlyPawnZ = Pawn->GetActorLocation().Z;
-float EarlyGZ = GetGroundZ(Pawn->GetActorLocation());
+float EarlyGZ = GetCachedGroundZ(Pawn->GetActorLocation());
 float AltitudeM = FMath::Max(0.0f, (EarlyPawnZ - EarlyGZ)  / CM_PER_M);
 Rho = AirDensityAtAltitude(AltitudeM);  // ISA altitude-dependent air density
 // Wind gradient: power law profile V(z) = V_ref × (z/z_ref)^α
@@ -253,7 +253,7 @@ float RightCD = ComputeCDFromPolar(RightAoA, RightCL, WingModel.CD0 * GetTrimmer
 // This makes landing flares more effective and takeoff easier.
 // Formula: CD_induced *= (1 - exp(-h / (b/2)))
 // At h=10m (1 wingspan): 14% reduction. At h=5m: 37%. At h=1m: 82%.
-float WingAltitudeAGL = Pawn->GetActorLocation().Z - GetGroundZ(Pawn->GetActorLocation());
+float WingAltitudeAGL = Pawn->GetActorLocation().Z - GetCachedGroundZ(Pawn->GetActorLocation());
 float WingspanM = FMath::Sqrt(WingModel.WingArea * WingModel.AR);  // b = sqrt(AR * S)
 // Ground effect reduces induced drag near ground: factor = 1 - exp(-h / (b/2))
 // At h=0: 0 (full reduction). At h=b/2: 63% remaining. At h→∞: 1 (no reduction).
@@ -1073,7 +1073,7 @@ HandleLanding(Char, DeltaTime, NewVel, TotalMassKg);
 	FVector NewLoc = CurrentLoc + NewVel * DeltaTime;
 
 	// Ground collision — don't let pilot go underground
-	float MoveGZ = GetGroundZ(NewLoc);
+	float MoveGZ = GetCachedGroundZ(NewLoc);
 	if (NewLoc.Z < MoveGZ)
 	{
 		NewLoc.Z = MoveGZ;
@@ -1255,7 +1255,7 @@ float AWingActor::ComputeThermalLiftMs(float AltitudeM) const
 bool AWingActor::HandleLanding(ACharacter* Char, float DeltaTime, FVector& NewVel, float TotalMassKg)
 {
 	FVector PawnLoc = Char->GetActorLocation();
-	float GZ = GetGroundZ(PawnLoc);
+	float GZ = GetCachedGroundZ(PawnLoc);
 	if (PawnLoc.Z > GZ + 1.0f || NewVel.Z >= 0.0f)
 		return false;  // Not touching ground or moving up
 

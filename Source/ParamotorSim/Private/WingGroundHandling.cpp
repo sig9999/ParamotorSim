@@ -72,7 +72,7 @@ FVector ShiftedWindDir = WindDirection.RotateAngleAxis(WindDirShift * RAD_TO_DEG
 // Wind gradient: V(h) = V_ref * (h/h_ref)^0.15, but below 2m the gradient is steeper
 // At ground level (0-2m), wind is ~50-70% of the 10m reference wind
 FVector WingLoc = GetActorLocation();
-float WingAltitudeM = FMath::Max(0.0f, (WingLoc.Z - GetGroundZ(WingLoc)) / CM_PER_M);
+float WingAltitudeM = FMath::Max(0.0f, (WingLoc.Z - GetCachedGroundZ(WingLoc)) / CM_PER_M);
 float GroundWindFactor = FMath::Clamp(FMath::Pow(FMath::Max(0.5f, WingAltitudeM / 10.0f), 0.15f), 0.5f, 1.0f);
 float GroundWindSpeed = CurrentWindSpeed * GroundWindFactor;
 FVector Wind = ShiftedWindDir * GroundWindSpeed * CM_PER_M;
@@ -141,7 +141,7 @@ float LiftN = GetTotalCellLiftN();
 // Formula: factor = 1 + 0.20 * exp(-h / (b/2))
 // At ground: +20%, at 10m (1 wingspan): +3%, at 20m: negligible
 FVector CharLoc = Char->GetActorLocation();
-float GZ = GetGroundZ(CharLoc);
+float GZ = GetCachedGroundZ(CharLoc);
 float HeightAboveGround = FMath::Max(0.0f, (CharLoc.Z - GZ)  / CM_PER_M);  // meters
 float WingspanM = FMath::Sqrt(WingModel.WingArea * WingModel.AR);  // b = sqrt(S * AR)
 // Ground effect: reduces induced drag near ground (less downwash)
@@ -336,7 +336,7 @@ FVector AWingActor::ComputeGroundWind()
 	FVector ShiftedWindDir = WindDirection.RotateAngleAxis(WindDirShift * RAD_TO_DEG, FVector(0, 0, 1));
 	// Ground-level wind reduction: wind is slower near the ground due to surface friction
 	FVector WingLoc = GetActorLocation();
-	float WingAltitudeM = FMath::Max(0.0f, (WingLoc.Z - GetGroundZ(WingLoc)) / CM_PER_M);
+	float WingAltitudeM = FMath::Max(0.0f, (WingLoc.Z - GetCachedGroundZ(WingLoc)) / CM_PER_M);
 	float GroundWindFactor = FMath::Clamp(FMath::Pow(FMath::Max(0.5f, WingAltitudeM / 10.0f), 0.15f), 0.5f, 1.0f);
 	float GroundWindSpeed = CurrentWindSpeed * GroundWindFactor;
 	return ShiftedWindDir * GroundWindSpeed * CM_PER_M;  // cm/s

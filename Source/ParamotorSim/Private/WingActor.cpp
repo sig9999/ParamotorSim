@@ -153,7 +153,7 @@ Char->GetMesh()->SetRelativeRotation(FlightBaseQuat);
 // DEBUG SHORTCUT — editor/dev only. Real takeoff goes through ground handling.
 #if WITH_EDITOR || UE_BUILD_DEVELOPMENT
 FVector PawnLoc = Pawn->GetActorLocation();
-float GroundZ = GetGroundZ(PawnLoc);
+float GroundZ = GetCachedGroundZ(PawnLoc);
 PawnLoc.Z = GroundZ + 500.0f;  // 5m — just enough to clear ground collision
 Pawn->SetActorLocation(PawnLoc, false);
 Char->GetCharacterMovement()->Velocity = FVector(0.0f, 0.0f, 100.0f);  // 1 m/s up
@@ -397,7 +397,7 @@ void AWingActor::UpdateDynamicWind(float DeltaTime, float GustAmplitude)
 		Pawn = Cast<APawn>(ConnectedParamotor->GetAttachParentActor());
 	if (Pawn)
 	{
-		float AltM = (Pawn->GetActorLocation().Z - GetGroundZ(Pawn->GetActorLocation())) / CM_PER_M;
+		float AltM = (Pawn->GetActorLocation().Z - GetCachedGroundZ(Pawn->GetActorLocation())) / CM_PER_M;
 		TurbScaleLength = FMath::Lerp(150.0f, 500.0f, FMath::Clamp(AltM / 1000.0f, 0.0f, 1.0f));
 	}
 
@@ -578,7 +578,7 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
         // not the whole wing. Only applies while A-lines are actively pulled.
         if (bLiftingALines && ALineFadeFactor > 0.01f)
         {
-            float GZp = GetGroundZ(ActorLoc);
+            float GZp = GetCachedGroundZ(ActorLoc);
             float HAG = ActorLoc.Z - GZp;
             float HeightFraction = FMath::Clamp(HAG / LINE_LENGTH_CM, 0.0f, 1.0f);
             // LE lift angle: ~25° at ground, fades as wing rises (pilot can't reach as high)
