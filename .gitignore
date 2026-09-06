@@ -1,0 +1,29 @@
+# Visual Studio
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# Unreal Engine
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+
+# OS
+*.tmp
+Thumbs.db
+.DS_Store
+
+# Large MetaHuman assets (too big for git, use separate storage)
+Content/MHC_Frey.uasset
+Content/MetaHumans/MHC_Frey/MHC_Frey.uasset
+Content/Frey_Exported/MHC_Frey_Head.uasset
+Content/OA_Hightop.uasset
+Content/MetaHumans/Hightops/OA_Hightop.uasset
+# LFS storage
+.git/lfs/

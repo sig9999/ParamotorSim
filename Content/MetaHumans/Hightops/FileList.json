@@ -1,0 +1,248 @@
+{
+	"files": [
+		{
+			"path": "OA_Hightop.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "WI_OA_Hightop.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/DF_Hightop.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/ClothAssets/CA_hightop_f_med_nrw.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/ClothAssets/CA_hightop_f_med_ovw.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/ClothAssets/CA_hightop_m_med_nrw.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/ClothAssets/CA_hightop_m_med_ovw.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/f_med_nrw_CombinedSkelMesh.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/f_med_ovw_CombinedSkelMesh.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/m_med_nrw_CombinedSkelMesh.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/m_med_ovw_CombinedSkelMesh.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/Materials/Hightops/M_shs_hightops.uasset",
+			"version": "1.0"
+		},
+		{
+			"path": "Hightop/Materials/Textures/m_bodymask_shs_hightop.uasset",
+			"version": "1.0"
+		},
+		{
+			"path": "Hightop/ClothAssets/DF_hightop_f_med_nrw.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/ClothAssets/DF_hightop_f_med_ovw.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/ClothAssets/DF_hightop_m_med_nrw.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/ClothAssets/DF_hightop_m_med_ovw.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/Materials/M_fabric_simpler.uasset",
+			"version": "1.6"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/DefaultMaps/black_masks.uasset",
+			"version": "1.1"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/DefaultMaps/WhiteSquareTexture.uasset",
+			"version": "1.2"
+		},
+		{
+			"path": "Hightop/Materials/Hightops/m_med_nrw_shs_hightop_AO.uasset",
+			"version": "1.0"
+		},
+		{
+			"path": "Hightop/Materials/Hightops/m_med_nrw_shs_hightop_Mask.uasset",
+			"version": "1.0"
+		},
+		{
+			"path": "Hightop/Materials/Hightops/m_med_nrw_shs_hightop_N.uasset",
+			"version": "1.0"
+		},
+		{
+			"path": "Hightop/Materials/Textures/TilingNoise05.uasset",
+			"version": "1.2"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/weave_plain.uasset",
+			"version": "1.1"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/weave_plain_normal.uasset",
+			"version": "1.1"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/Macros/macro_linen_rbess3s_4K_02.uasset",
+			"version": "1.2"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/Micros/micro_leather2_N.uasset",
+			"version": "1.4"
+		},
+		{
+			"path": "Hightop/meshes/f_med_nrw_shs_hightop.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/f_med_nrw_shs_hightop_LOD1.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/f_med_nrw_shs_hightop_LOD2.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/f_med_nrw_shs_hightop_LOD3.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/f_med_ovw_shs_hightop.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/f_med_ovw_shs_hightop_LOD1.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/f_med_ovw_shs_hightop_LOD2.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/f_med_ovw_shs_hightop_LOD3.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/m_med_nrw_shs_hightop.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/m_med_nrw_shs_hightop_LOD1.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/m_med_nrw_shs_hightop_LOD2.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/m_med_nrw_shs_hightop_LOD3.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/m_med_ovw_shs_hightop.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/m_med_ovw_shs_hightop_LOD1.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/m_med_ovw_shs_hightop_LOD2.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/meshes/m_med_ovw_shs_hightop_LOD3.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Hightop/Materials/MF_Passthrough.uasset",
+			"version": "1.1"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/clothing_AO.uasset",
+			"version": "1.1"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/clothing_N.uasset",
+			"version": "1.1"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/DefaultMaps/Clothing_Default_Mask.uasset",
+			"version": "1.1"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/DefaultMaps/color_spectrum.uasset",
+			"version": "1.1"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/Macros/macro_linen_rbess3s_4K.uasset",
+			"version": "1.2"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/Macros/macro_pilling_A.uasset",
+			"version": "1.3"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/Macros/macro_pilling_N.uasset",
+			"version": "1.4"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/MaterialFunction/MatLayerBlend_Aniso.uasset",
+			"version": "1.1"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/MaterialFunction/MF_AvgColorReplace.uasset",
+			"version": "1.1"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/MaterialFunction/MF_PowerVariation.uasset",
+			"version": "1.1"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/MaterialFunction/MF_PrintGraphic.uasset",
+			"version": "1.3"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/MaterialFunction/MF_PrintRepeats.uasset",
+			"version": "1.4"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/Micros/micro_weave_denim_diffuse.uasset",
+			"version": "1.3"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/Micros/micro_weave_denim_N.uasset",
+			"version": "1.3"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/upresTest/MF_NormalStrength.uasset",
+			"version": "1.1"
+		},
+		{
+			"path": "Hightop/Materials/Textures/Clothing/Wrinkles/memory_wrinkles_normal.uasset",
+			"version": "1.1"
+		}
+	]
+}

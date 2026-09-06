@@ -1,0 +1,72 @@
+{
+	"name": "MHC_Frey",
+	"assetData":
+	{
+		"objectPath": "/Game/CustomCharacter/Frey/MHC_Frey.MHC_Frey"
+	},
+	"dependentPackages": [
+		"/Game/CustomCharacter/Frey/MHC_Frey",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/WI_Middle_part",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/GB_Middle_part",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/Middle_part",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/SKM_TejuHead",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/M_MI/MID_MI_Hair_Middle_part",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/M_MI/MI_Hair",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/M_MI/M_hair_v4",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/MF/MF_Hair_Color",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/MF/MF_Hair_ColorBlending",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/MF/MF_Hair_SaltAndPeper",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/MF/MF_Hair_SecondaryColors",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/MF/MF_HairAnisotropic",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/MF/MF_RedHairBoost",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/MF/MF_RGB2YCbCr",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/MF/MF_Variation",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/MF/MF_YCbCr2RGB",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/MF/MF_YCbCrAdjustments_BoostRedness",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/Tex/T_Black_Linear",
+		"/Game/CustomCharacter/Frey/Frey/Middle_part/Middle_part/Tex/T_TilingNoise_005"
+	],
+	"assetType": "Character",
+	"details":
+	{
+		"bResizesWithBlendableBodies": false,
+		"bHasClothingMask": false,
+		"includedLods": 0,
+		"lod0VertCount": 0,
+		"numUniqueClothingItems": 0,
+		"bContainsGrooms": true,
+		"bContainsClothing": true,
+		"bIsEditableCharacter": true,
+		"platformsIncluded": [],
+		"numUniqueCharacters": 1,
+		"numUniqueGrooms": 0,
+		"bPhysics": false,
+		"strandsCount": 0,
+		"strandsPointCount": 0,
+		"bHasLods": false,
+		"cardMeshCount": 0,
+		"cardMeshVertices": 0,
+		"cardMeshTextureResolution":
+		{
+			"x": 0,
+			"y": 0
+		},
+		"volumeMeshCount": 0,
+		"volumeMeshVertices": 0,
+		"volumeMeshTextureResolution":
+		{
+			"x": 0,
+			"y": 0
+		},
+		"numMaterials": 0,
+		"engineVersion": "5.6"
+	},
+	"totalSize": 1440340050,
+	"verificationReport":
+	{
+		"subject": "MHC_Frey",
+		"infos": [],
+		"warnings": [],
+		"errors": []
+	}
+}

@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(C:\\Users\\sdean\\Documents\\Unreal Projects\\ParamotorSim\\**)",
+      "Read(C:\\DevinTools\\**)",
+      "Exec(C:\\Program Files\\Epic Games\\UE_5.8\\Engine\\Build\\BatchFiles\\Build.bat)",
+      "Exec(C:\\Program Files\\Epic Games\\UE_5.8\\Engine\\Binaries\\Win64\\UnrealEditor.exe)",
+      "Exec(C:\\Program Files\\Epic Games\\UE_5.8\\Engine\\Binaries\\Win64\\UnrealEditor-Cmd.exe)",
+      "Exec(C:\\Program Files\\Epic Games\\UE_5.8\\Engine\\Binaries\\Win64\\UnrealEditor-Cmd.exe**)",
+      "Exec(git)",
+      "Exec(taskkill)",
+      "Exec(python)",
+      "Exec(python3)"
+    ],
+    "ask": [
+      "Write(C:\\Users\\sdean\\Documents\\Unreal Projects\\ParamotorSim\\**)",
+      "Write(C:\\DevinTools\\**)"
+    ],
+    "deny": [
+      "Write(**\\.env*)",
+      "Write(**\\id_*)",
+      "Write(**\\*secret*)",
+      "Exec(sudo)",
+      "Exec(ssh)",
+      "Exec(scp)",
+      "Exec(net)",
+      "Exec(ftp)",
+      "Write(C:\\Windows\\**)",
+      "Exec(powershell -Command Remove-Item)",
+      "Exec(rm)",
+      "Exec(del)"
+    ]
+  },
+  "read_config_from": {
+    "cursor": false,
+    "windsurf": true,
+    "claude": false
+  }
+}

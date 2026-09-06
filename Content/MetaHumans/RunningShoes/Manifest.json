@@ -1,0 +1,203 @@
+{
+	"name": "OA_Runningshoes",
+	"assetData":
+	{
+		"objectPath": "/Game/Outfits/RunningShoes/OA_Runningshoes.OA_Runningshoes"
+	},
+	"dependentPackages": [
+		"/Game/Outfits/RunningShoes/OA_Runningshoes",
+		"/Game/Outfits/RunningShoes/WI_OA_Runningshoes",
+		"/Game/Outfits/Runningshoes/Runningshoes/DF_Runningshoes",
+		"/Game/Outfits/Runningshoes/Runningshoes/ClothAssets/CA_runningshoes_f_med_nrw",
+		"/Game/Outfits/Runningshoes/Runningshoes/ClothAssets/CA_runningshoes_f_med_ovw",
+		"/Game/Outfits/Runningshoes/Runningshoes/ClothAssets/CA_runningshoes_m_med_nrw",
+		"/Game/Outfits/Runningshoes/Runningshoes/ClothAssets/CA_runningshoes_m_med_ovw",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/f_med_nrw_CombinedSkelMesh",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/f_med_ovw_CombinedSkelMesh",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/m_med_nrw_CombinedSkelMesh",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/m_med_ovw_CombinedSkelMesh",
+		"/Game/Outfits/Runningshoes/Runningshoes/Materials/RunningShoes/M_shs_runningshoes",
+		"/Game/Outfits/Runningshoes/Runningshoes/Materials/Textures/f_bodymask_shs_runningshoes",
+		"/Game/Outfits/Runningshoes/Runningshoes/Materials/Textures/runningshoes_thumbnail",
+		"/Game/Outfits/Runningshoes/Runningshoes/ClothAssets/DF_runningshoes_f_med_nrw",
+		"/Game/Outfits/Runningshoes/Runningshoes/ClothAssets/DF_runningshoes_f_med_ovw",
+		"/Game/Outfits/Runningshoes/Runningshoes/ClothAssets/DF_runningshoes_m_med_nrw",
+		"/Game/Outfits/Runningshoes/Runningshoes/ClothAssets/DF_runningshoes_m_med_ovw",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/M_fabric_simpler",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/DefaultMaps/black_masks",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/Wrinkles/memory_wrinkles_normal",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/RunningShoes/shs_runningshoes_AO",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/RunningShoes/shs_runningshoes_Mask",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/RunningShoes/shs_runningshoes_N",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/RunningShoes/shs_runningshoes_nrm_detailTx_02",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/RunningShoes/shs_runningshoes_nrm_detailTx_N",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/RunningShoes/shs_runningshoes_sole_mask",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/Macros/macro_heather_04",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/Macros/macro_heather_04_normal",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/Macros/macro_linen_rbess3s_4K_02",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/f_med_nrw_shs_runningshoes",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/f_med_nrw_shs_runningshoes_LOD1",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/f_med_nrw_shs_runningshoes_LOD2",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/f_med_nrw_shs_runningshoes_LOD3",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/f_med_ovw_shs_runningshoes",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/f_med_ovw_shs_runningshoes_LOD1",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/f_med_ovw_shs_runningshoes_LOD2",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/f_med_ovw_shs_runningshoes_LOD3",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/m_med_nrw_shs_runningshoes",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/m_med_nrw_shs_runningshoes_LOD1",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/m_med_nrw_shs_runningshoes_LOD2",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/m_med_nrw_shs_runningshoes_LOD3",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/m_med_ovw_shs_runningshoes",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/m_med_ovw_shs_runningshoes_LOD1",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/m_med_ovw_shs_runningshoes_LOD2",
+		"/Game/Outfits/Runningshoes/Runningshoes/meshes/m_med_ovw_shs_runningshoes_LOD3",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/MF_Passthrough",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/clothing_AO",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/clothing_N",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/DefaultMaps/Clothing_Default_Mask",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/DefaultMaps/color_spectrum",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/DefaultMaps/WhiteSquareTexture",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/Macros/macro_linen_rbess3s_4K",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/Macros/macro_pilling_A",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/Macros/macro_pilling_N",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/MaterialFunction/MatLayerBlend_Aniso",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/MaterialFunction/MF_AvgColorReplace",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/MaterialFunction/MF_PowerVariation",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/MaterialFunction/MF_PrintGraphic",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/MaterialFunction/MF_PrintRepeats",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/Micros/micro_weave_denim_diffuse",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/Micros/micro_weave_denim_N",
+		"/Game/Outfits/RunningShoes/Runningshoes/Materials/Textures/Clothing/upresTest/MF_NormalStrength"
+	],
+	"assetType": "OutfitClothing",
+	"details":
+	{
+		"bResizesWithBlendableBodies": true,
+		"bHasClothingMask": false,
+		"includedLods": 4,
+		"lod0VertCount": 49104,
+		"numUniqueClothingItems": 1,
+		"bContainsGrooms": false,
+		"bContainsClothing": false,
+		"bIsEditableCharacter": false,
+		"platformsIncluded": [],
+		"numUniqueCharacters": 0,
+		"numVirtualTextures": 0,
+		"numSubstrateMaterials": 0,
+		"numUniqueGrooms": 0,
+		"bPhysics": false,
+		"strandsCount": 0,
+		"strandsPointCount": 0,
+		"bHasLods": false,
+		"cardMeshCount": 0,
+		"cardMeshVertices": 0,
+		"cardMeshTextureResolution":
+		{
+			"x": 0,
+			"y": 0
+		},
+		"volumeMeshCount": 0,
+		"volumeMeshVertices": 0,
+		"volumeMeshTextureResolution":
+		{
+			"x": 0,
+			"y": 0
+		},
+		"numMaterials": 0,
+		"engineVersion": "5.7"
+	},
+	"totalSize": 260822416,
+	"verificationReport":
+	{
+		"subject": "OA_Runningshoes",
+		"infos": [],
+		"warnings": [
+			{
+				"message": "The WardrobeItem WI_OA_Runningshoes does not have a Body Hidden Face Map set.",
+				"projectItem": "/Script/MetaHumanCharacterPalette.MetaHumanWardrobeItem'/Game/Outfits/RunningShoes/WI_OA_Runningshoes.WI_OA_Runningshoes'",
+				"sourceItem": ""
+			},
+			{
+				"message": "f_med_nrw_shs_runningshoes does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/f_med_nrw_shs_runningshoes.f_med_nrw_shs_runningshoes'",
+				"sourceItem": ""
+			},
+			{
+				"message": "f_med_nrw_shs_runningshoes_LOD1 does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/f_med_nrw_shs_runningshoes_LOD1.f_med_nrw_shs_runningshoes_LOD1'",
+				"sourceItem": ""
+			},
+			{
+				"message": "f_med_nrw_shs_runningshoes_LOD2 does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/f_med_nrw_shs_runningshoes_LOD2.f_med_nrw_shs_runningshoes_LOD2'",
+				"sourceItem": ""
+			},
+			{
+				"message": "f_med_nrw_shs_runningshoes_LOD3 does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/f_med_nrw_shs_runningshoes_LOD3.f_med_nrw_shs_runningshoes_LOD3'",
+				"sourceItem": ""
+			},
+			{
+				"message": "f_med_ovw_shs_runningshoes does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/f_med_ovw_shs_runningshoes.f_med_ovw_shs_runningshoes'",
+				"sourceItem": ""
+			},
+			{
+				"message": "f_med_ovw_shs_runningshoes_LOD1 does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/f_med_ovw_shs_runningshoes_LOD1.f_med_ovw_shs_runningshoes_LOD1'",
+				"sourceItem": ""
+			},
+			{
+				"message": "f_med_ovw_shs_runningshoes_LOD2 does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/f_med_ovw_shs_runningshoes_LOD2.f_med_ovw_shs_runningshoes_LOD2'",
+				"sourceItem": ""
+			},
+			{
+				"message": "f_med_ovw_shs_runningshoes_LOD3 does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/f_med_ovw_shs_runningshoes_LOD3.f_med_ovw_shs_runningshoes_LOD3'",
+				"sourceItem": ""
+			},
+			{
+				"message": "m_med_nrw_shs_runningshoes does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/m_med_nrw_shs_runningshoes.m_med_nrw_shs_runningshoes'",
+				"sourceItem": ""
+			},
+			{
+				"message": "m_med_nrw_shs_runningshoes_LOD1 does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/m_med_nrw_shs_runningshoes_LOD1.m_med_nrw_shs_runningshoes_LOD1'",
+				"sourceItem": ""
+			},
+			{
+				"message": "m_med_nrw_shs_runningshoes_LOD2 does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/m_med_nrw_shs_runningshoes_LOD2.m_med_nrw_shs_runningshoes_LOD2'",
+				"sourceItem": ""
+			},
+			{
+				"message": "m_med_nrw_shs_runningshoes_LOD3 does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/m_med_nrw_shs_runningshoes_LOD3.m_med_nrw_shs_runningshoes_LOD3'",
+				"sourceItem": ""
+			},
+			{
+				"message": "m_med_ovw_shs_runningshoes does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/m_med_ovw_shs_runningshoes.m_med_ovw_shs_runningshoes'",
+				"sourceItem": ""
+			},
+			{
+				"message": "m_med_ovw_shs_runningshoes_LOD1 does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/m_med_ovw_shs_runningshoes_LOD1.m_med_ovw_shs_runningshoes_LOD1'",
+				"sourceItem": ""
+			},
+			{
+				"message": "m_med_ovw_shs_runningshoes_LOD2 does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/m_med_ovw_shs_runningshoes_LOD2.m_med_ovw_shs_runningshoes_LOD2'",
+				"sourceItem": ""
+			},
+			{
+				"message": "m_med_ovw_shs_runningshoes_LOD3 does not have at least 4 levels of detail",
+				"projectItem": "/Script/Engine.StaticMesh'/Game/Outfits/RunningShoes/Runningshoes/meshes/m_med_ovw_shs_runningshoes_LOD3.m_med_ovw_shs_runningshoes_LOD3'",
+				"sourceItem": ""
+			}
+		],
+		"errors": []
+	}
+}

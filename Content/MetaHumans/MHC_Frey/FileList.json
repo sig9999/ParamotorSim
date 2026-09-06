@@ -1,0 +1,84 @@
+{
+	"files": [
+		{
+			"path": "MHC_Frey.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Frey/Middle_part/WI_Middle_part.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Frey/Middle_part/GB_Middle_part.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/Middle_part.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/SKM_TejuHead.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/M_MI/MID_MI_Hair_Middle_part.uasset",
+			"version": "5.6"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/M_MI/MI_Hair.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/M_MI/M_hair_v4.uasset",
+			"version": "0.0"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/MF/MF_Hair_Color.uasset",
+			"version": "5.6"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/MF/MF_Hair_ColorBlending.uasset",
+			"version": "5.6"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/MF/MF_Hair_SaltAndPeper.uasset",
+			"version": "5.6"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/MF/MF_Hair_SecondaryColors.uasset",
+			"version": "5.6"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/MF/MF_HairAnisotropic.uasset",
+			"version": "5.6"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/MF/MF_RedHairBoost.uasset",
+			"version": "5.6"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/MF/MF_RGB2YCbCr.uasset",
+			"version": "5.6"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/MF/MF_Variation.uasset",
+			"version": "5.6"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/MF/MF_YCbCr2RGB.uasset",
+			"version": "5.6"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/MF/MF_YCbCrAdjustments_BoostRedness.uasset",
+			"version": "5.6"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/Tex/T_Black_Linear.uasset",
+			"version": "5.6"
+		},
+		{
+			"path": "Frey/Middle_part/Middle_part/Tex/T_TilingNoise_005.uasset",
+			"version": "5.6"
+		}
+	]
+}
