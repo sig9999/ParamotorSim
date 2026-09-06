@@ -40,12 +40,32 @@
 - Increased inertial lag force to full magnitude (was scaled by mass ratio ~1/6)
 - Wing now overshoots and pendulums naturally when pilot stops running
 
+### Function Splitting (Session 7 continued)
+- `ParamotorActor::Tick()` split into 6 helpers: UpdateCranking, UpdateEngineRPM, UpdateEngineTemp, UpdateFuel, UpdateEngineAudio, UpdateEngineSpoolDown
+- `WingGroundHandling::UpdateInflation()` split: extracted `UpdateKitingCollapses()` and `ComputeGroundWind()`
+- `WingFlightPhysics::UpdateFlight()` split: extracted `ComputeThermalLiftMs()`, `HandleLanding()`, `UpdateWingPositionFromLines()`, `ApplyVelocitySafetyCaps()`
+- `UpdateFlight` now ~870 lines (down from 1315)
+
+### Additional Cleanup (Session 7 continued)
+- Moved `NACA4415_Polar[]` from `AirfoilPolar.h` to `AirfoilPolar.cpp` (eliminates per-translation-unit duplication)
+- Replaced `GetGroundZ()` with `GetCachedGroundZ()` in `WingClothSim.cpp` (4 calls) and `WingLinesSim.cpp` (2 calls)
+- Replaced duplicated particle shift loop in `WingLinesSim.cpp` with `ShiftAllParticles()` call
+- `SetMaterial` calls in `WingVisuals.cpp` now only apply once (not per-frame)
+- Added null guards for `CanopyMesh`, `LineMesh`, `BagMesh` in `WingVisuals.cpp`
+- `nullptr`-initialized `SpawnedWingActor` in `ParamotorPlayerController.h`
+- `nullptr`-initialized `FootstepAudio`, `WindAmbientAudio`, `FallAudio` in `ParamotorCharacter.h`
+- Removed dead variables: `FootstepInterval`, `RagdollVelocity`, `EffectiveJumpZ`
+- Cached `GetActorLocation()` in `SimulateCloth` particle loop (was 2 calls per particle per frame)
+- Named constants added: `RAD_TO_DEG`, `PERCENT_FACTOR`
+- Replaced `180.0f / PI` → `RAD_TO_DEG` (39 instances), `PI / 180.0f` → `PI_DIV_180` (15 instances)
+- Replaced `9.81f` → `GRAVITY_MS2` (16 instances), `736.0f` → `MAX_THRUST_N`, `52.5f` → `RISER_LENGTH_CM` (7 instances)
+- Replaced `100.0f` → `CM_PER_M` for unit conversions, `100.0f` → `PERCENT_FACTOR` for percentage conversions
+
 ### Deferred (Needs Testing Session)
-- Split `WingFlightPhysics.cpp::UpdateFlight()` (1315 lines) into focused helpers
-- Split `WingGroundHandling.cpp::UpdateInflation()` (470 lines) into helpers
-- Split `ParamotorActor.cpp::Tick()` (235 lines) into helpers
+- Further splitting of `UpdateFlight()` (~870 lines remain, tightly coupled)
 - Move `ParagliderWingMesh.h` data (15k lines) to runtime-loaded asset
-- Move `NACA4415_Polar[]` from `AirfoilPolar.h` to a .cpp file (currently duplicated per translation unit)
+- Extract left/right line setup helper in `WingLinesSim.cpp`
+- Data-drive wing model specs in `ParamotorPlayerController.cpp` (currently a long switch)
 
 ## Real Physics Overhaul (2026-09-05 Session 6 — Brake Lines + Line Tension)
 
