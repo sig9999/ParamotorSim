@@ -20,7 +20,7 @@ AParamotorPlayerController::AParamotorPlayerController()
 	SpawnedParamotorActor = nullptr;
 
 	// Available wing models (Sig brand)
-	WingModelNames = { TEXT("Sig 16"), TEXT("Sig 20"), TEXT("Sig 22"), TEXT("Sig 25"), TEXT("Sig 30"), TEXT("Sig 35") };
+	WingModelNames = { TEXT("Sig 16"), TEXT("Sig 20"), TEXT("Sig 22"), TEXT("Sig 25"), TEXT("Sig 30"), TEXT("Sig 35"), TEXT("MacPara Charger 25M") };
 }
 
 void AParamotorPlayerController::BeginPlay()
@@ -277,8 +277,10 @@ void AParamotorPlayerController::OnInteract()
 			// Real measurement: 42cm total spacing = 21cm each side from center
 			// MetaHuman actor origin is at feet; chest/shoulder height ~140cm for standing adult
 			FVector CharRight = Char->GetActorRightVector();
-			FVector LeftCarabiner = PlayerPos + CharRight * -21.0f + FVector(0, 0, 140.0f);
-			FVector RightCarabiner = PlayerPos + CharRight * 21.0f + FVector(0, 0, 140.0f);
+			float CarabHalfSpacing = CARABINER_SPACING_CM * 0.5f;
+			float HarnessHeightCm = 140.0f;  // Chest/shoulder height for standing adult
+			FVector LeftCarabiner = PlayerPos + CharRight * -CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
+			FVector RightCarabiner = PlayerPos + CharRight * CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
 
 			SpawnedWingActor->ConnectRisers(SpawnedParamotorActor, LeftCarabiner, RightCarabiner);
 
@@ -513,6 +515,8 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 			// Throttle trigger speed: real Moster 185 trigger moves full travel in ~0.3s
 		// Rate = 1/0.3 ≈ 3.3/s (spring-return trigger with finger force)
 		const float ThrottleRate = 3.3f;
+		// Spring return rate: real throttle spring returns to idle in ~2s → 0.5/s
+		const float ThrottleReturnRate = 0.5f;
 			if (bThrottleUpHeld)
 			{
 				CurrentThrottle += ThrottleRate * DeltaTime;
@@ -525,7 +529,7 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 			// drifts back to 0 (like releasing the throttle trigger on a real paramotor)
 			if (!bThrottleUpHeld && !bThrottleDownHeld && CurrentThrottle > 0.0f)
 			{
-				CurrentThrottle -= 0.15f * DeltaTime;  // Slow return to idle
+				CurrentThrottle -= ThrottleReturnRate * DeltaTime;  // Spring return to idle
 			}
 
 			SpawnedParamotorActor->SetThrottle(CurrentThrottle);
@@ -581,8 +585,10 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 		{
 			FVector CharPos = Char3->GetActorLocation();
 			FVector CharRight = Char3->GetActorRightVector();
-			FVector LeftCarabiner = CharPos + CharRight * -21.0f + FVector(0, 0, 140.0f);
-			FVector RightCarabiner = CharPos + CharRight * 21.0f + FVector(0, 0, 140.0f);
+			float CarabHalfSpacing = CARABINER_SPACING_CM * 0.5f;
+			float HarnessHeightCm = 140.0f;
+			FVector LeftCarabiner = CharPos + CharRight * -CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
+			FVector RightCarabiner = CharPos + CharRight * CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
 			SpawnedWingActor->UpdateCarabinerPositions(LeftCarabiner, RightCarabiner);
 
 			// Send brake input to wing — PROGRESSIVE (ramp up/down like real brake handles)

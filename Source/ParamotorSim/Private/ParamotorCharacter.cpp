@@ -442,6 +442,11 @@ void AParamotorCharacter::Tick(float DeltaTime)
 
 	// Cache controller for wing state checks
 	AParamotorPlayerController* PC = Cast<AParamotorPlayerController>(GetController());
+	// Wing flight check: WingActor sets MOVE_None (not MOVE_Flying) during flight,
+	// so IsFlying() on the movement component is always false. Check the wing instead.
+	auto IsWingFlying = [PC]() -> bool {
+		return (PC && PC->SpawnedWingActor && PC->SpawnedWingActor->IsFlying());
+	};
 
 	// Detect if player is providing movement input (pressing W/A/S/D)
 	FVector CurrentAccel = GetCharacterMovement()->GetCurrentAcceleration();
@@ -450,10 +455,8 @@ void AParamotorCharacter::Tick(float DeltaTime)
 	// Track if player was genuinely airborne while thrust was active (not just bouncing)
 	// During takeoff run, the wing lifts the pilot into brief hops/skips — these are NORMAL
 	// and should NOT trigger a trip. Only trip if the player was genuinely high in the air.
-	static float AirTimeAccum = 0.0f;
-	static float MaxAirHeight = 0.0f;
-	static float GroundRefZ = 0.0f;
-	if (bThrustActive && !bOnGround && !GetCharacterMovement()->IsFlying())
+	// Air time tracking (instance members — was static, shared between instances)
+	if (bThrustActive && !bOnGround && !IsWingFlying())
 	{
 		AirTimeAccum += DeltaTime;
 		// Track max height above ground during this air episode
@@ -488,8 +491,8 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			bWasInAirWithThrust = false;
 			AirTimeAccum = 0.0f;
 			MaxAirHeight = 0.0f;
-			// Only trip if we weren't in flying mode (wing flight landing = controlled landing)
-			if (!GetCharacterMovement()->IsFlying())
+			// Only trip if the wing isn't flying (wing flight landing = controlled landing)
+			if (!IsWingFlying())
 			{
 				UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: Landed after air-thrust — TRIPPED!"));
 				Trip();
@@ -502,11 +505,13 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			// P_leg = F_resistance * v -> v_max = P_leg / F_resistance
 			// Pilot sprint power: ~350W. Resistance: rolling friction + paramotor drag
 			float PilotLegPowerW = 350.0f;
-			float ParamotorMass = (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped()) ? 30.0f : 0.0f;
+			// PilotWeight (set by PlayerController) already includes paramotor + fuel mass.
+			// Only add wing + lines (not already in PilotWeight).
 			float CharMassForRun = GetCharacterMovement()->Mass;
 			if (CharMassForRun <= 0.0f) CharMassForRun = 100.0f;
-			float TotalMass = CharMassForRun + ParamotorMass + 7.5f;  // +wing + lines
-			float RollingResistanceN = 0.08f * TotalMass * 9.81f;  // mu * N (shoes on grass)
+			float TotalMass = CharMassForRun + 7.5f;  // +wing(6kg) + lines(1.5kg) approx
+			float RollingMu = 0.4f;  // Rubber soles on grass (consistent with WingGroundHandling)
+			float RollingResistanceN = RollingMu * TotalMass * 9.81f;  // mu * N
 			float MaxRunSpeedMs = (RollingResistanceN > 1.0f) ? PilotLegPowerW / RollingResistanceN : 8.0f;
 			MaxRunSpeedMs = FMath::Clamp(MaxRunSpeedMs, 1.5f, 12.0f);  // Physical human bounds
 			const float MaxRunSpeed = MaxRunSpeedMs * 100.0f;  // cm/s
@@ -595,7 +600,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 	// DISABLED: The wind push on the ground was pushing the pilot backward,
 	// reducing apparent wind and preventing takeoff. The WingActor already
 	// calculates airspeed from wind correctly. Wind knockdown risk is kept.
-	if (bOnGround && !bIsFallen && !GetCharacterMovement()->IsFlying())
+	if (bOnGround && !bIsFallen && !IsWingFlying())
 	{
 		bool bWingInflated = false;
 		if (PC && PC->SpawnedWingActor)
@@ -620,8 +625,8 @@ void AParamotorCharacter::Tick(float DeltaTime)
 
 	// === IN AIR WITH THRUST: thrust throws you forward ===
 	// Only applies when falling (not when wing is flying — WingActor handles that)
-	bool bIsAirborne = !bOnGround || GetCharacterMovement()->IsFlying();
-	bool bWingFlying = (GetCharacterMovement()->IsFlying());  // Wing set us to Flying mode
+	bool bIsAirborne = !bOnGround || IsWingFlying();
+	bool bWingFlying = IsWingFlying();  // Wing sets MOVE_None (not MOVE_Flying) during flight
 	if (bThrustActive && bIsAirborne && !bIsFallen && !bWingFlying)
 	{
 		float ThrustForceN = 0.0f;
@@ -662,7 +667,16 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			float ThrustHeightM = 1.5f;
 			float CGOffsetM = 0.3f;
 			float CharMass = FMath::Max(50.0f, GetCharacterMovement()->Mass);
-			float ThrustN = CurrentThrust * 736.0f;  // Max thrust at full throttle
+			float ThrustN = 0.0f;
+			if (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped())
+			{
+				// Use real propeller thrust from the paramotor actor
+				ThrustN = PC->GetSpawnedParamotorActor()->GetThrustForceN(GetVelocity().Size() / 100.0f);
+			}
+			else
+			{
+				ThrustN = CurrentThrust * 736.0f;  // Fallback: max thrust at full throttle
+			}
 			float GravityN = CharMass * 9.81f;
 			float ThrustLeanRad = FMath::Atan2(ThrustN * ThrustHeightM, GravityN * CGOffsetM);
 			float ThrustLean = ThrustLeanRad * 180.0f / PI;
@@ -802,9 +816,8 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			EWingState WState = PC->SpawnedWingActor->GetWingState();
 			if (WState == EWingState::Inflated)
 			{
-				// Gravity scale < 1.0 means wing is supporting some weight
-				float GravScale = GetCharacterMovement()->GravityScale;
-				WeightSupportFraction = FMath::Clamp(1.0f - GravScale, 0.0f, 1.0f);
+				// Use wing's debug weight support value (GravityScale is always 1.0 in ground handling)
+				WeightSupportFraction = FMath::Clamp(PC->SpawnedWingActor->GetDebugWeightSupport(), 0.0f, 1.0f);
 			}
 		}
 		// Trip risk multiplier: 1.0 at no support, 0.05 at full support
@@ -841,7 +854,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 		{
 			// Accumulate trip risk proportional to moment imbalance
 			// Normalize by a reference moment (pilot weight × 0.1m)
-			float RefMoment = PilotMassKg * 9.81f * 0.15f;  // Same as FootOffsetM
+			float RefMoment = PilotMassKg * 9.81f * FootOffsetM;  // Use actual FootOffsetM
 			TripRiskAccumulator += (NetMoment / RefMoment) * DeltaTime;
 		}
 		else
@@ -1014,6 +1027,9 @@ void AParamotorCharacter::Trip()
 	FallTimer = 0.0f;
 	TripRiskAccumulator = 0.0f;
 
+	// Capture velocity BEFORE stopping movement (StopMovementImmediately zeros it)
+	FVector LaunchVel = GetVelocity();
+
 	// Stop character movement
 	GetCharacterMovement()->StopMovementImmediately();
 	GetCharacterMovement()->DisableMovement();
@@ -1028,7 +1044,6 @@ void AParamotorCharacter::Trip()
 
 	// Give the ragdoll the character's actual velocity at trip time
 	// Real physics: the body inherits the momentum it had when it fell
-	FVector LaunchVel = GetVelocity();
 	if (LaunchVel.Size2D() < 50.0f)
 	{
 		// Standing still: small forward tip from the thrust moment that caused the trip

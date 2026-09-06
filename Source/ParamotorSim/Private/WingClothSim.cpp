@@ -180,31 +180,35 @@ void AWingActor::UpdateCellPressure(float DeltaTime, float ApparentWindMs, float
 		// Flying AoA: lower trim AoA for level cruise at ~10 m/s
 		// Real level-flight CL at trim ≈ 0.74, from the polar that is ~2°.
 		// Real takeoff CL at ~8 m/s ≈ 1.18, from the polar that is ~8°.
-		float CellBaseAoA = (WingState == EWingState::Flying) ? WingModel.TrimAoA : 8.0f;
+		// Use WingModel.TrimAoA for all states (flying and ground-run)
+		float CellBaseAoA = WingModel.TrimAoA;
 		float CellBrakeAoA = TrailingEdgeDeflectionDeg(BrakeInput);
 		float CellAoA = CellBaseAoA + CellBrakeAoA;
 		// Get real CL from polar at this AoA
 		float PolarCL, PolarCD;
 		LookupAirfoilPolarWithCamber(CellAoA, BrakeInput, PolarCL, PolarCD);
-		// Scale polar CL to this wing's CLMax (polar is for NACA 4415, CLMax=1.47)
-		float PolarCLMax = 1.47f;
-		float CLScale = WingModel.CLMax / PolarCLMax;
-		float BaseCL = PolarCL * CLScale;
+		// Affine scale from base polar (BaseCL0≈0.41, BaseCLMax=1.47) to (WingCL0, WingCLMax)
+		float BaseCL0 = 0.41f, BaseCLMax = 1.47f;
+		float CLDenom = BaseCLMax - BaseCL0;
+		float CLScale = FMath::Abs(CLDenom) > 1e-3f ? (WingModel.CLMax - WingModel.CL0) / CLDenom : 1.0f;
+		float BaseCL = (PolarCL - BaseCL0) * CLScale + WingModel.CL0;
 
 		// Fill scaling: fill² (partially filled = crumpled, not partial airfoil)
 		// Tension gating: no tension = parachute (no airfoil lift)
-		float CellCL = BaseCL * CellFill[cell] * LineTensionFraction;  // Linear fill scaling
+		float CellCL = BaseCL * CellFill[cell] * CellFill[cell] * LineTensionFraction;  // fill² scaling
 
 		// Stalled cells (from brake) lose lift progressively
 		// At full stall: CL drops to near zero (completely separated flow)
 		CellCL *= (1.0f - BrakeStallFactor);
 
 		// Cell CD: from the real airfoil polar at this AoA + camber
-		// The polar already captures brake-induced drag from increased camber
-		// Stall adds drag from flow separation (post-stall polar data)
-		float CellCD = PolarCD * (WingModel.CLMax / 1.47f);  // Scale polar CD to wing
+		// Scale drag similarly to CL (affine from base polar)
+		float BaseAirfoilCD0 = 0.0082f;
+		float CellCD = WingModel.CD0 + FMath::Max(0.0f, PolarCD - BaseAirfoilCD0);
 		// Additional stalled drag from separated flow (not in the pre-stall polar)
 		CellCD += BrakeStallFactor * 1.0f;  // Bluff body CD=1.0 for stalled flow
+		// Deflated cells produce bluff-body drag scaled by (1 - fill)
+		CellCD += (1.0f - CellFill[cell]) * 0.8f;
 
 		// Per-cell apparent wind: spanwise variation from wind gradient + turbulence
 		// Real wings see slightly different wind at each cell due to:
@@ -587,7 +591,34 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		FVector ApparentWindVec = WindVelVec - WingVel;  // cm/s
 		float ApparentWindMs = ApparentWindVec.Size() / CM_PER_M;  // m/s
 
+		// === GEOMETRY (needed for line tension BEFORE cell pressure) ===
+		FVector CarabMid = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
+		FVector WingPos = GetActorLocation();
+		FVector ToWingFromCarab = WingPos - CarabMid;
+		FVector HorizToWing = FVector(ToWingFromCarab.X, ToWingFromCarab.Y, 0.0f);
+		float HorizDist = HorizToWing.Size();
+		float HeightAboveCarab = WingPos.Z - CarabMid.Z;
+		float DistFromCarab = ToWingFromCarab.Size();
+		float GroundZ = GetGroundZ(WingPos);
+		float HeightAboveGround = WingPos.Z - GroundZ;
+		float PendAngle = FMath::Atan2(HorizDist, FMath::Max(1.0f, FMath::Abs(HeightAboveCarab)));
+
+		// === LINE TENSION FRACTION (must be computed BEFORE cell pressure) ===
+		// Lines can only pull — they're taut when the wing is at line length,
+		// slack when the wing is closer. This is THE key factor in canopy shape:
+		// - Taut lines pull the bottom skin down → airfoil shape
+		// - Slack lines → no tension → wing billows like a parachute
+		// - No tension at all → wing deflates, loses all shape
+		float LineSlack = FMath::Clamp((LINE_LENGTH_CM - DistFromCarab) / LINE_LENGTH_CM, 0.0f, 1.0f);
+		// Tension also requires the wing to be above the carabiner (gravity loading)
+		float GravityLoading = FMath::Clamp(HeightAboveCarab / 100.0f, 0.0f, 1.0f);
+		// Target tension: 1.0 when at line length and above carabiner, 0 when slack or low
+		float TargetTension = (1.0f - LineSlack) * GravityLoading;
+		// Smooth the tension transition (lines don't snap taut instantly)
+		LineTensionFraction = FMath::FInterpTo(LineTensionFraction, TargetTension, DeltaTime, 10.0f);
+
 		// === CELL PRESSURE (fills cells, computes lift/drag per cell) ===
+		// Now uses the current frame's LineTensionFraction (computed above)
 		UpdateCellPressure(DeltaTime, ApparentWindMs, LeftBrakeAmount, RightBrakeAmount);
 
 		// === A-LINE FADE ===
@@ -609,32 +640,6 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		float ApparentMassKg = WingMassKg * 0.5f + WingMassKg * 3.0f * CellFillFactor;
 		float EffectiveMassKg = WingMassKg + ApparentMassKg;  // Used for F=ma (inertia)
 		float WingWeightN = WingMassKg * 9.81f;  // Used for F=mg (gravity only on real mass)
-
-		// === GEOMETRY ===
-		FVector CarabMid = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
-		FVector WingPos = GetActorLocation();
-		FVector ToWingFromCarab = WingPos - CarabMid;
-		FVector HorizToWing = FVector(ToWingFromCarab.X, ToWingFromCarab.Y, 0.0f);
-		float HorizDist = HorizToWing.Size();
-		float HeightAboveCarab = WingPos.Z - CarabMid.Z;
-		float DistFromCarab = ToWingFromCarab.Size();
-		float GroundZ = GetGroundZ(WingPos);
-		float HeightAboveGround = WingPos.Z - GroundZ;
-		float PendAngle = FMath::Atan2(HorizDist, FMath::Max(1.0f, FMath::Abs(HeightAboveCarab)));
-
-		// === LINE TENSION FRACTION (drives canopy shape) ===
-		// Lines can only pull — they're taut when the wing is at line length,
-		// slack when the wing is closer. This is THE key factor in canopy shape:
-		// - Taut lines pull the bottom skin down → airfoil shape
-		// - Slack lines → no tension → wing billows like a parachute
-		// - No tension at all → wing deflates, loses all shape
-		float LineSlack = FMath::Clamp((LINE_LENGTH_CM - DistFromCarab) / LINE_LENGTH_CM, 0.0f, 1.0f);
-		// Tension also requires the wing to be above the carabiner (gravity loading)
-		float GravityLoading = FMath::Clamp(HeightAboveCarab / 100.0f, 0.0f, 1.0f);
-		// Target tension: 1.0 when at line length and above carabiner, 0 when slack or low
-		float TargetTension = (1.0f - LineSlack) * GravityLoading;
-		// Smooth the tension transition (lines don't snap taut instantly)
-		LineTensionFraction = FMath::FInterpTo(LineTensionFraction, TargetTension, DeltaTime, 10.0f);
 
 		// === FORCE 1: A-LINE PULL (pilot arm force on leading edge) ===
 		// In real life, the pilot pulls the A-risers to lift the leading edge
@@ -683,14 +688,15 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 
 		// === FORCE 5: PENDULUM RESTORING (gravity toward zenith) ===
 		// F = m * g * sin(θ) toward zenith. This is pure gravity on the wing mass.
-		// It does NOT depend on cell fill — gravity pulls the wing mass regardless.
-		// A heavier wing (more apparent mass when full) has MORE pendulum inertia,
-		// which is already captured by EffectiveMassKg in the integration.
+		// The restoring acceleration = g × sin(θ) × (WingMass / EffectiveMass)
+		// because only the real mass is pulled by gravity, but the effective mass
+		// (including apparent air mass) resists the acceleration.
 		FVector PendulumForce = FVector::ZeroVector;
 		if (HorizDist > 1.0f)
 		{
 			FVector ToCarabHoriz = -HorizToWing / HorizDist;
-			float PendRestoring = FMath::Sin(PendAngle) * GRAVITY_CM_S2;
+			float MassRatio = WingMassKg / FMath::Max(0.1f, EffectiveMassKg);
+			float PendRestoring = FMath::Sin(PendAngle) * GRAVITY_CM_S2 * MassRatio;
 			PendulumForce = ToCarabHoriz * PendRestoring;
 		}
 
@@ -745,9 +751,10 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// Drag from turbulence wind variation on the wing
 		float TurbLongDragN = 0.5f * Rho * TurbLongMs * TurbLongMs * WingModel.WingArea * WingModel.CD0;
 		float TurbLatDragN = 0.5f * Rho * TurbLatMs * TurbLatMs * WingModel.WingArea * 0.4f;
-		FVector TurbulenceForce = (ShiftedWindDir * (TurbLongDragN / EffectiveMassKg) * CM_PER_M
-		                          + PilotRight * (TurbLatDragN / EffectiveMassKg) * CM_PER_M)
-		                          * FMath::Sign(TurbLongState + TurbLatState);
+		// Turbulence force: drag from turbulent wind variations, applied in the
+		// direction of each component independently (no combined sign flip)
+		FVector TurbulenceForce = ShiftedWindDir * (TurbLongDragN / EffectiveMassKg) * CM_PER_M * FMath::Sign(TurbLongState)
+		                          + PilotRight * (TurbLatDragN / EffectiveMassKg) * CM_PER_M * FMath::Sign(TurbLatState);
 		// Turbulence effect decreases with airspeed (more damping from apparent wind)
 		// No extra damping - gust force already proportional to dV^2
 
@@ -758,7 +765,9 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// No magic clamps — the force is naturally bounded by pilot acceleration.
 		FVector PilotHorizVel = FVector(PilotVel.X, PilotVel.Y, 0.0f);
 		FVector PilotAccel = (PilotHorizVel - PrevPilotVel) / FMath::Max(DeltaTime, 0.02f);
-		float MassRatio = EffectiveMassKg / (PilotWeight + WingModel.WingWeight + 25.0f);  // +30 for paramotor
+		// Total suspended mass = pilot (already includes paramotor+fuel) + wing + lines
+		float TotalSuspendedMassKg = PilotWeight + WingModel.WingWeight + 1.5f;
+		float MassRatio = EffectiveMassKg / FMath::Max(1.0f, TotalSuspendedMassKg);
 		FVector InertialLagForce = -PilotAccel * MassRatio * CM_PER_M;
 		PrevPilotVel = PilotHorizVel;
 
@@ -1064,8 +1073,8 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 				InflationProgress = 1.0f;
 				SetInflatedShape();
 				UE_LOG(LogTemp, Warning, TEXT("WingActor: Wing INFLATED! fill=%.0f%% h=%.0fcm"), CellFillFactor * 100, InflationHeight);
-				// Initial overshoot: wing shoots forward slightly
-				KiteVelocity = PilotFwdDir * 150.0f;
+				// Initial overshoot: wing shoots forward slightly (apply impulse to WingVel)
+				WingVel += PilotFwdDir * 150.0f;
 				KitePitchOvershoot = 10.0f;
 			}
 		}

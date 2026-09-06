@@ -391,6 +391,7 @@ protected:
 	float SustainedAirTime = 0.0f;
 	float FlightLogTimer = 0.0f;
 	float StallLogTimer = 0.0f;
+	float EndLogTimer = 0.0f;  // Instance member (was static — shared between instances)
 	float CurrentRoll = 0.0f;  // Smoothed roll for flight steering
 	float CanopyOpenness = 0.0f;  // 0=crinkled, 1=fully open. Increased by brake pumping.
 	float BrakePumpBoost = 0.0f;  // Temporary lift boost from brake pumping (decays over time)

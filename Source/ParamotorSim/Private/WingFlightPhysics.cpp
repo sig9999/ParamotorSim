@@ -293,21 +293,25 @@ auto ComputeCLFromPolar = [&](float AoA, float WingCL0, float WingCLMax, float B
 {
 	float PolarCL, PolarCD;
 	LookupAirfoilPolarWithCamber(AoA, BrakeInput, PolarCL, PolarCD);
-	// Scale polar CL to wing model: ratio of wing CLMax to base CLMax
+	// Affine scale from base polar (BaseCL0≈0.41, BaseCLMax=1.47) to (WingCL0, WingCLMax)
+	float BaseCL0 = 0.41f;
 	float BaseCLMax = 1.47f;
-	float CLScale = WingCLMax / BaseCLMax;
-	return PolarCL * CLScale;
+	float Denom = BaseCLMax - BaseCL0;
+	float CLScale = FMath::Abs(Denom) > 1e-3f ? (WingCLMax - WingCL0) / Denom : 1.0f;
+	return (PolarCL - BaseCL0) * CLScale + WingCL0;
 };
 auto ComputeCDFromPolar = [&](float AoA, float CL, float CD0, float AR, float e, float BrakeInput) -> float
 {
 	float PolarCL, PolarCD;
 	LookupAirfoilPolarWithCamber(AoA, BrakeInput, PolarCL, PolarCD);
-	// Use the polar's CD as the profile drag (2D airfoil section)
-	// Add 3D induced drag: CD_induced = CL² / (π · AR · e)
+	// Profile drag = wing baseline + polar increment above base airfoil CD0
+	float BaseAirfoilCD0 = 0.0082f;  // NACA 4415 at zero-lift (XFOIL)
+	float ProfileCD = CD0 + FMath::Max(0.0f, PolarCD - BaseAirfoilCD0);
+	// 3D induced drag: CD_induced = CL² / (π · AR · e)
 	float Denom = PI * AR * e;
-	float CD = Denom > 0.0f ? PolarCD + CL * CL / Denom : PolarCD;
+	float InducedCD = Denom > 0.0f ? CL * CL / Denom : 0.0f;
 	// Post-stall: the polar already captures the drag rise from separated flow
-	return CD;
+	return ProfileCD + InducedCD;
 };
 float LeftCL = ComputeCLFromPolar(LeftAoA, WingModel.CL0 * GetTrimmerCLFactor(), WingModel.CLMax, EffectiveLeftBrake);
 float RightCL = ComputeCLFromPolar(RightAoA, WingModel.CL0 * GetTrimmerCLFactor(), WingModel.CLMax, EffectiveRightBrake);
@@ -320,13 +324,16 @@ float RightCD = ComputeCDFromPolar(RightAoA, RightCL, WingModel.CD0 * GetTrimmer
 // At h=10m (1 wingspan): 14% reduction. At h=5m: 37%. At h=1m: 82%.
 float WingAltitudeAGL = Pawn->GetActorLocation().Z - GetGroundZ(Pawn->GetActorLocation());
 float WingspanM = FMath::Sqrt(WingModel.WingArea * WingModel.AR);  // b = sqrt(AR * S)
+// Ground effect reduces induced drag near ground: factor = 1 - exp(-h / (b/2))
+// At h=0: 0 (full reduction). At h=b/2: 63% remaining. At h→∞: 1 (no reduction).
 float GroundEffectFactor = 1.0f - FMath::Exp(-WingAltitudeAGL / 100.0f / (WingspanM * 0.5f));
-// No clamp - physical formula 1-exp(-h/(b/2)) gives correct values at all heights
-// Apply to induced drag portion only (CD - CD0 = induced drag)
-float LeftInduced = FMath::Max(0.0f, LeftCD - WingModel.CD0 * GetTrimmerDragFactor());
-float RightInduced = FMath::Max(0.0f, RightCD - WingModel.CD0 * GetTrimmerDragFactor());
-LeftCD = WingModel.CD0 * GetTrimmerDragFactor() + LeftInduced * GroundEffectFactor;
-RightCD = WingModel.CD0 * GetTrimmerDragFactor() + RightInduced * GroundEffectFactor;
+// Apply to induced drag portion only (separate profile from induced)
+float BaseAirfoilCD0 = 0.0082f;
+float ProfileCD0 = WingModel.CD0 * GetTrimmerDragFactor();
+float LeftInduced = FMath::Max(0.0f, LeftCD - ProfileCD0);
+float RightInduced = FMath::Max(0.0f, RightCD - ProfileCD0);
+LeftCD = ProfileCD0 + LeftInduced * GroundEffectFactor;
+RightCD = ProfileCD0 + RightInduced * GroundEffectFactor;
 // === COLLAPSE DETECTION ===
 // Asymmetric collapse: one side's AoA goes negative (tuck) or way past stall
 // Frontal collapse: both sides go negative (sudden downdraft or brake release at speed)
@@ -361,9 +368,9 @@ if (RightAoA > StallAoA - TipStallMargin)
 // Turbulence-induced collapse: turbulence shifts local AoA beyond limits
 // This is deterministic — if turbulence is strong enough to push AoA past
 // stall or negative-stall, the cell collapses. No probability roll.
-// TurbStrength is in m/s of wind variation. Convert to AoA variation:
-// ΔAoA ≈ atan(ΔV_vertical / V_airspeed) ≈ ΔV_vert / V (small angle)
-float TurbAoAVariation = (Vms > 1.0f) ? TurbStrength / Vms * 180.0f / PI : 0.0f;
+// Only the VERTICAL turbulence component changes AoA (longitudinal changes airspeed,
+// lateral causes sideslip/yaw). Use TurbVertState, not the sum of all three.
+float TurbAoAVariation = (Vms > 1.0f) ? FMath::Abs(TurbVertState) / Vms * 180.0f / PI : 0.0f;
 // Overloaded wings are MORE collapse-resistant (higher internal pressure)
 float FlightWeightRatio = WingModel.MaxTakeoffWeight > 0.0f ? PilotWeight / WingModel.MaxTakeoffWeight : 1.0f;
 float FlightCollapseResistance = FMath::Max(0.1f, FlightWeightRatio);  // No upper clamp
@@ -382,8 +389,9 @@ if (RightAoAWithTurb > StallAoA || RightAoAWithTurb < -WingModel.StallAoA * 0.15
 	// Time constant ~0.5s at 10 m/s (refill is slower than deflation).
 	float CellDeflateRate = FMath::Max(0.5f, Vms * 0.33f);  // Orifice flow: rate ~ V * Cd * A_intake / V_cell
 	float CellRefillRate = FMath::Max(0.3f, Vms * 0.20f);  // Refill slower than deflate
-	// Recovery delay: cells can't refill until airflow reattaches (AoA back in range)
-	float RefillDelay = 0.3f;  // Flow reattachment time ~ chord/airspeed
+	// Recovery delay: flow reattachment time ≈ chord / airspeed
+	float MeanChordM = (WingspanM > 0.0f) ? WingModel.WingArea / WingspanM : 2.0f;
+	float RefillDelay = FMath::Max(0.1f, MeanChordM / FMath::Max(1.0f, Vms));
 
 if (bLeftCollapseTrigger)	{
 		LeftCollapseAmount = FMath::Min(1.0f, LeftCollapseAmount + DeltaTime * CellDeflateRate);
@@ -449,8 +457,8 @@ if (LeftCollapseAmount > 0.0f)	{
 	if (bStallTrigger)
 	{
 		ParachutalStallTimer += DeltaTime;
-		// Recovery time: cells must refill (depends on fill time constant)
-		float StallRecoveryTime = 1.0f / FMath::Max(0.3f, Vms * 0.20f);
+		// Recovery time: 1 / CellRefillRate (consistent with collapse recovery)
+		float StallRecoveryTime = 1.0f / CellRefillRate;
 		if (ParachutalStallTimer > StallRecoveryTime)
 			bInParachutalStall = true;
 	}
@@ -465,8 +473,8 @@ if (LeftCollapseAmount > 0.0f)	{
 float CL = (LeftCL + RightCL) * 0.5f;
 float CDWing = (LeftCD + RightCD) * 0.5f;
 	// Pilot + paramotor drag (pilot sitting in harness with motor on back)
-	// Real frontal area: ~0.4 m² for seated pilot with paramotor
-	float PilotDragArea = 0.4f;
+	// Real frontal area: 0.5 m² standing → 0.3 m² seated (40% reduction of pilot drag)
+	float PilotDragArea = FMath::Lerp(0.5f, 0.3f, SeatTransition);
 	float CDPilot = 0.5f;  // Pilot+motor drag coefficient (bluff body)
 	// Line drag: ~150 lines, avg 0.8mm diameter, avg 4m length
 	// Effective drag area: ~0.06 m², CD=1.0 (cylinder in crossflow)
@@ -477,8 +485,11 @@ float CDWing = (LeftCD + RightCD) * 0.5f;
 	// The wing generates more lift when brakes are pulled because the cambered
 	// airfoil has a higher CLMax — this is real aerodynamics, not a hack.
 // === FORCES — per side (Newtons) ===
-float LeftLiftN = 0.5f * Rho * Vms * Vms * HalfArea * LeftCL;
-float RightLiftN = 0.5f * Rho * Vms * Vms * HalfArea * RightCL;
+// Use total apparent airspeed (includes vertical component from sink/climb/thermals)
+// for dynamic pressure — vertical air movement contributes to lift.
+float Vtot = ApparentWind.Size() / 100.0f;
+float LeftLiftN = 0.5f * Rho * Vtot * Vtot * HalfArea * LeftCL;
+float RightLiftN = 0.5f * Rho * Vtot * Vtot * HalfArea * RightCL;
 float LiftN = LeftLiftN + RightLiftN;
 // === CELL PRESSURE + LINE TENSION COUPLING ===
 // The wing only generates lift if cells are pressurized AND lines are taut.
@@ -490,7 +501,7 @@ float LiftN = LeftLiftN + RightLiftN;
 // During flight, lines are taut (pilot hanging from wing), so tension = 1.0.
 // But if cells deflate (e.g. from collapse), lift drops quadratically.
 float LocalTotalMassKg = PilotWeight + WingModel.WingWeight + 1.5f;  // pilot + wing + lines
-LineTensionFraction = FMath::Max(0.0f, LiftN / FMath::Max(1.0f, LocalTotalMassKg * 9.81f * 100.0f));
+LineTensionFraction = FMath::Clamp(LiftN / FMath::Max(1.0f, LocalTotalMassKg * 9.81f), 0.0f, 1.0f);
 float FillTensionCoupling = CellFillFactor * CellFillFactor * LineTensionFraction;
 LiftN *= FillTensionCoupling;
 LeftLiftN *= FillTensionCoupling;
@@ -529,10 +540,11 @@ float TotalBrake = (EffectiveLeftBrake + EffectiveRightBrake) * 0.5f;
 // - Shift magnitude: ~25% of total load moves from A/B to C/D
 // The shift is proportional to brake deflection (linear for small deflections)
 float BrakeShiftFraction = TotalBrake * 0.25f;  // Up to 25% load shift at full brake
-LoadFractionA -= BrakeShiftFraction * 0.55f;  // A loses 55% of the shifted load (forwardmost)
+// Coefficients sum to zero so total load is conserved (A,B lose; C,D gain)
+LoadFractionA -= BrakeShiftFraction * 0.50f;  // A loses 50% of the shifted load (forwardmost)
 LoadFractionB -= BrakeShiftFraction * 0.25f;  // B loses 25% (mid-front)
-LoadFractionC += BrakeShiftFraction * 0.30f;  // C gains 30% (mid-rear)
-LoadFractionD += BrakeShiftFraction * 0.45f;  // D gains 45% (rearmost, closest to deflected TE)
+LoadFractionC += BrakeShiftFraction * 0.25f;  // C gains 25% (mid-rear)
+LoadFractionD += BrakeShiftFraction * 0.50f;  // D gains 50% (rearmost, closest to deflected TE)
 // No clamps — the pressure distribution naturally bounds the fractions
 // (A can't go below 0 because the LE still carries pressure even at full brake)
 // Compute per-group tension
@@ -563,7 +575,10 @@ LineStretchD = (LineTensionD / LineStiffnessNPerM) * 100.0f;
 // This is a real effect: under high load, the wing's AoA increases from line stretch
 // (Note: this effect is small, ~0.1-0.3° at normal loads, and is already implicitly
 //  captured in the wing's trim AoA. We compute it for wear/future use.)
-float StretchAoAEffect = FMath::Atan2((LineStretchA - LineStretchD), 120.0f) * 180.0f / PI;
+// Mean chord and A-D attachment spacing derived from wing geometry (not hardcoded)
+float MeanChordCm = (WingspanM > 0.0f) ? (WingModel.WingArea / WingspanM) * CM_PER_M : 200.0f;
+float ADistanceCm = MeanChordCm * 0.6f;  // A at ~15% chord, D at ~75% chord → 60% span
+float StretchAoAEffect = FMath::Atan2((LineStretchA - LineStretchD), ADistanceCm) * 180.0f / PI;
 // Per-side drag (for asymmetric yaw)
 float VmsTotal = ApparentWind.Size() / 100.0f;
 FVector ApparentDir = ApparentWind.GetSafeNormal();
@@ -580,7 +595,7 @@ float DragN = LeftDragN + RightDragN + PilotDragN + LineDragN;
 float ThrustN = 0.0f;
 if (ConnectedParamotor)
 {
-	ThrustN = ConnectedParamotor->GetThrustForceN(Vms);
+	ThrustN = ConnectedParamotor->GetThrustForceN(Vtot);
 }
 else
 {
@@ -609,7 +624,14 @@ float WingLoading = GetWingLoading();
 // Trim speed from physics: V = sqrt(2 × W / (ρ × S × CL_trim))
 // where CL_trim is the lift coefficient at the trim AoA (from polar)
 // Real EN-A wing at trim: CL ≈ 0.6-0.8, giving V_trim ≈ 10-11 m/s at 4.4 kg/m²
-float CLTrim = WingModel.CL0 * GetTrimmerCLFactor();  // CL at trim AoA
+// CL at trim AoA: evaluate polar at WingModel.TrimAoA + trimmer offset (no brake)
+float TrimAoAForCL = WingModel.TrimAoA + GetTrimmerAoAOffset();
+float PolarCLTrim, PolarCDTrim;
+LookupAirfoilPolarWithCamber(TrimAoAForCL, 0.0f, PolarCLTrim, PolarCDTrim);
+float BaseCL0 = 0.41f, BaseCLMax = 1.47f;
+float CLScaleTrim = FMath::Abs(BaseCLMax - BaseCL0) > 1e-3f
+    ? (WingModel.CLMax - WingModel.CL0) / (BaseCLMax - BaseCL0) : 1.0f;
+float CLTrim = (PolarCLTrim - BaseCL0) * CLScaleTrim + WingModel.CL0;
 CLTrim = FMath::Max(0.01f, CLTrim);  // Division-by-zero guard only
 float TotalWeightN = TotalMassKg * 9.81f;
 TrimSpeedMs = FMath::Sqrt(2.0f * TotalWeightN / (Rho * WingModel.WingArea * CLTrim));
@@ -636,8 +658,8 @@ float DragDiff = RightDragN - LeftDragN;
 // + = right has more drag → yaw right
 float LiftAccel = (LiftN / TotalMassKg) * CM_PER_M;
 float DragAccel = (DragN / TotalMassKg) * CM_PER_M;
-	// Seated pilot has less drag (streamlined body vs dangling legs)
-	DragAccel *= (1.0f - DragReductionFromSeat);
+	// Seat transition already reduces pilot drag area above (Lerp 0.5→0.3 m²).
+	// Do NOT reduce total drag here — that would also reduce wing/line drag.
 float ThrustAccel = (ThrustN / TotalMassKg) * CM_PER_M;
 float GravityAccel = GRAVITY_CM_S2;
 // === TRIM SPEED STABILITY (speed polar) ===
@@ -718,9 +740,9 @@ PendulumAngle += PendulumAngularVel * DeltaTime;
 	// Seated pilot pitch: -80° (reclined in harness). Standing: 0° (upright).
 	PilotPitchTarget = bSeated ? -80.0f : 0.0f;
 	PilotPitch = FMath::FInterpTo(PilotPitch, PilotPitchTarget, DeltaTime, 3.0f);
-	// Drag reduction from seated position: real frontal area difference
-	// Standing pilot: ~0.5 m² (upright with dangling legs). Seated: ~0.3 m² (streamlined)
-	// Reduction = (0.5 - 0.3) / 0.5 = 0.40 (40% less drag when fully seated)
+	// Pilot drag area is now lerped directly (0.5 m² standing → 0.3 m² seated).
+	// DragReductionFromSeat is kept for HUD/visual compatibility but no longer
+	// multiplies total drag (that was double-counting wing + line drag).
 	DragReductionFromSeat = SeatTransition * 0.40f;
 // === STEERING — REALISTIC PARAMOTOR PHYSICS ===
 //
@@ -765,7 +787,9 @@ float WeightShiftRollMoment = PilotWeight * 9.81f * WeightShiftCGOffset;
 float FlightApparentMassKg = Rho * WingModel.WingArea * (WingspanM * 0.5f) * CellFillFactor * 0.5f;
 float FlightEffectiveMassKg = WingModel.WingWeight + FlightApparentMassKg;
 float WingInertiaRoll = FlightEffectiveMassKg * (WingspanM * 0.5f) * (WingspanM * 0.5f);  // kg·m²
-float WingInertiaYaw = WingInertiaRoll;  // Same for thin wing
+// Yaw inertia about vertical axis is much larger than roll inertia about span axis
+// (uniform spanwise distribution: I_yaw ≈ m·b²/12 vs I_roll ≈ m·(b/2)² = m·b²/4)
+float WingInertiaYaw = FlightEffectiveMassKg * WingspanM * WingspanM / 12.0f;
 
 // === PROPELLER TORQUE ===
 // τ = P / ω_prop (N·m) — real engine torque
@@ -824,9 +848,13 @@ float TotalRollMoment = WeightShiftRollMoment + RollMoment + CollapseRollMoment
 // Integrate: α = M / I (rad/s²) → ω += α·dt
 float RollAccelRad = TotalRollMoment / WingInertiaRoll;
 WingRollRate += RollAccelRad * 180.0f / PI * DeltaTime;
-// Aerodynamic roll damping: C_l_p × q × S × (b/2)² / V
+// Aerodynamic roll damping: M = C_l_p × q × S × (b/2)² × (ω_roll · b/2 / V)
 // C_l_p ≈ -1.0 for a paraglider (thin wing, high span)
-float RollDampMoment = -WingRollRate * PI / 180.0f * 0.5f * Rho * Vms * WingModel.WingArea * WingspanM * 0.5f * WingspanM * 0.5f / FMath::Max(1.0f, Vms);
+// The V in the denominator cancels the V in dynamic pressure q=0.5ρV², leaving
+// a damping that scales linearly with airspeed (correct: more airspeed = more damping).
+float C_lp = -1.0f;
+float RollDampMoment = -WingRollRate * PI / 180.0f * C_lp * 0.5f * Rho * Vms
+    * WingModel.WingArea * (WingspanM * 0.5f) * (WingspanM * 0.5f);
 WingRollRate += (RollDampMoment / WingInertiaRoll) * 180.0f / PI * DeltaTime;
 CurrentRoll += WingRollRate * DeltaTime;
 CurrentRoll = FMath::Clamp(CurrentRoll, -180.0f, 180.0f);  // NaN safety only
@@ -876,10 +904,9 @@ if (Vms > 1.0f && SpeedError > 0.0f)
 // Trimmer pitch effect (geometric — trimmer changes the wing's trim AoA)
 	PitchTarget += GetTrimmerPitchOffset();
 // Hang point: motor lean angle tilts thrust vector
-// Real geometry: hang point offset tilts the thrust line by atan(offset × max_tilt / line_length)
-// Max hang point tilt: ~4° per unit (from real paramotor hang point adjustment range)
-// This is the geometric angle of the thrust vector relative to the pilot vertical
-float HangPointTiltDeg = FMath::Atan2(HangPointOffset * 10.0f * CM_PER_M, LineLength) * 180.0f / PI;
+// Real geometry: max hang-point tilt ~4° → max lateral offset = L × tan(4°)
+float MaxHangPointOffsetCm = LineLength * FMath::Tan(4.0f * PI / 180.0f);
+float HangPointTiltDeg = FMath::Atan2(HangPointOffset * MaxHangPointOffsetCm, LineLength) * 180.0f / PI;
 	PitchTarget += HangPointTiltDeg;
 // Wing pitch has spring-mass-damper dynamics (it oscillates)
 // Physical: the wing-pilot system is a pendulum with ω = √(g/L)
@@ -1026,7 +1053,7 @@ FVector Accel = FVector::ZeroVector;
 // Thrust: applied along the pilot's forward vector, tilted by hang point angle
 // The hang point tilt angle (computed above) redirects thrust vertically
 // No separate climb boost — the thrust vector angle handles this geometrically
-float HangPointTiltRad = FMath::Atan2(HangPointOffset * 4.0f * CM_PER_M, LineLength);
+float HangPointTiltRad = FMath::Atan2(HangPointOffset * MaxHangPointOffsetCm, LineLength);
 float ThrustHorizFraction = FMath::Cos(HangPointTiltRad);
 float ThrustVertFraction = FMath::Sin(HangPointTiltRad);
 Accel += PawnFwd * ThrustAccel * ThrustHorizFraction;
@@ -1046,8 +1073,9 @@ Accel.Z += ThrustAccel * ThrustVertFraction;
 float TotalPitchRad = (WingPitchAngle + PendulumAngle * 180.0f / PI) * PI / 180.0f;
 // Vertical component of lift (reduced by pitch and bank)
 float LiftVertical = VerticalLift * FMath::Cos(TotalPitchRad);
-// Forward component of lift (when pitched forward, lift pushes forward = glide thrust)
-float LiftForward = LiftAccel * FMath::Sin(TotalPitchRad) * FMath::Cos(BankRad);
+// Forward component of lift: nose-up (positive pitch) tilts lift backward → decelerates.
+// Nose-down (negative pitch) tilts lift forward → glide thrust.
+float LiftForward = -LiftAccel * FMath::Sin(TotalPitchRad) * FMath::Cos(BankRad);
 Accel.Z += LiftVertical;
 Accel += PawnFwd * LiftForward;  // Forward lift component (glide thrust)
 	Accel.Z -= GravityAccel;
@@ -1073,12 +1101,10 @@ Accel += PawnFwd * LiftForward;  // Forward lift component (glide thrust)
 	// - Centripetal force curves the path → speed increases from gravity
 	// No artificial sink or forward acceleration needed.
 	// No artificial trim sink — speed stability from drag polar
-// Pendulum coupling — the pilot's swing creates forward/backward velocity
-// When pilot swings forward, they accelerate forward; when swinging back, they decelerate
-// Full geometric coupling (1.0) — the pendulum velocity IS the pilot's velocity
-float PendulumVelForward = PendulumAngularVel * LineLength * FMath::Cos(PendulumAngle);
-Accel.X += PawnFwd.X * PendulumVelForward;
-Accel.Y += PawnFwd.Y * PendulumVelForward;
+// Pendulum coupling is already handled through PitchTarget/TotalPitchRad above:
+// the pendulum angle tilts the lift vector, producing the correct forward/back
+// acceleration. Adding a velocity term to acceleration would double-count and
+// produce a displacement-sized error. Removed direct PendulumVelForward injection.
 FVector NewVel = Vel + Accel * DeltaTime;
 // Safety
 if (!FMath::IsFinite(NewVel.X) || !FMath::IsFinite(NewVel.Y) || !FMath::IsFinite(NewVel.Z))	{
@@ -1308,7 +1334,9 @@ float AWingActor::GetTrimmerAoAOffset() const{
 	// Fast (positive): A riser lengthens → LE drops → AoA decreases (negative)
 	// Slow (negative): A riser shortens → LE rises → AoA increases (positive)
 	float TrimmerTravelCm = 5.0f;
-	float ADistanceCm = 120.0f;  // 60% of 200cm chord
+	float WingspanM = FMath::Sqrt(WingModel.WingArea * WingModel.AR);
+	float MeanChordCm = (WingspanM > 0.0f) ? (WingModel.WingArea / WingspanM) * CM_PER_M : 200.0f;
+	float ADistanceCm = MeanChordCm * 0.6f;  // 60% of mean chord
 	return -TrimmerPosition * FMath::Atan2(TrimmerTravelCm, ADistanceCm) * 180.0f / PI;
 }
 

@@ -249,7 +249,15 @@ if (Pawn)		{
 			ACharacter* Char = Cast<ACharacter>(Pawn);
 if (Char && Char->GetCharacterMovement())			{
 				Char->GetCharacterMovement()->GravityScale = 1.0f;
-if (Char->GetCharacterMovement()->IsFlying())					Char->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+			// Flight uses MOVE_None (not MOVE_Flying), so IsFlying() is always false.
+			// Restore appropriate movement mode based on ground contact.
+			if (Char->GetCharacterMovement()->MovementMode == MOVE_None)
+			{
+				if (Char->GetCharacterMovement()->IsMovingOnGround())
+					Char->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+				else
+					Char->GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+			}
 }
 }
 }
@@ -356,15 +364,24 @@ void AWingActor::UpdateDynamicWind(float DeltaTime, float GustAmplitude)
 	TurbIntensity = GustAmplitude;
 	// Scale length: larger at altitude (bigger eddies), smaller near ground
 	// Typical: 200m at low altitude, up to 500m at high altitude
-	APawn* Pawn = Cast<APawn>(GetAttachParentActor());
+	// Use the same attachment chain as GetPilotFrame() (via ConnectedParamotor)
+	APawn* Pawn = nullptr;
+	if (ConnectedParamotor)
+		Pawn = Cast<APawn>(ConnectedParamotor->GetAttachParentActor());
 	if (Pawn)
 	{
 		float AltM = (Pawn->GetActorLocation().Z - GetGroundZ(Pawn->GetActorLocation())) / CM_PER_M;
 		TurbScaleLength = FMath::Lerp(150.0f, 500.0f, FMath::Clamp(AltM / 1000.0f, 0.0f, 1.0f));
 	}
 
-	// Airspeed for filter time constant (use wind speed as the "V" in the filter)
-	float Vfilter = FMath::Max(2.0f, BaseWind);  // m/s, minimum 2 to avoid div by zero
+	// Airspeed for filter time constant: use true airspeed (relative wind + pilot velocity),
+	// not just base wind. The Dryden filter's time constant depends on how fast the
+	// aircraft traverses turbulent eddies, which is the true airspeed.
+	float PilotSpeedMs = 0.0f;
+	if (Pawn)
+		PilotSpeedMs = Pawn->GetVelocity().Size() / CM_PER_M;
+	float TrueAirspeedMs = FMath::Sqrt(BaseWind * BaseWind + PilotSpeedMs * PilotSpeedMs);
+	float Vfilter = FMath::Max(2.0f, TrueAirspeedMs);  // m/s, minimum 2 to avoid div by zero
 
 	// Dryden filter time constant: τ = L / V
 	// Real Dryden model: lateral and vertical scale lengths are smaller than
@@ -376,9 +393,12 @@ void AWingActor::UpdateDynamicWind(float DeltaTime, float GustAmplitude)
 	float TauLat = ScaleLat / Vfilter;                // Lateral (smaller eddies)
 	float TauVert = ScaleVert / Vfilter;              // Vertical (smaller eddies)
 
-	// White noise input (Gaussian approximation: sum of uniform randoms)
+	// White noise input (Gaussian approximation: 12-sample sum gives unit variance)
 	auto WhiteNoise = []() -> float {
-		return (FMath::FRand() + FMath::FRand() + FMath::FRand() - 1.5f) * 0.8165f;
+		float White = 0.0f;
+		for (int32 i = 0; i < 12; ++i)
+			White += FMath::FRand();
+		return White - 6.0f;  // Mean 0, variance 1 (CLT approximation)
 	};
 
 	// Dryden filter: x(t+dt) = x(t) × exp(-dt/τ) + σ × √(2/τ) × √dt × white_noise
@@ -533,9 +553,10 @@ FVector CarabMidWorld = (LeftCarabinerPos + RightCarabinerPos) * 0.5f;
     float YawDiff2 = DesiredYaw - CurrentYaw;
     while (YawDiff2 > 180.0f) YawDiff2 -= 360.0f;
     while (YawDiff2 < -180.0f) YawDiff2 += 360.0f;
-    // Yaw rate from KiteYawVel (integrated from aerodynamic moments in SimulateCloth)
-    // No arbitrary clamp — the yaw dynamics already have physical damping
-    float RotSpeed = FMath::Abs(KiteYawVel);
+    // Yaw rate: use WingGroundYawRate when Connected (integrated from weathervane dynamics),
+    // KiteYawVel when in other ground states (integrated from aerodynamic moments in SimulateCloth)
+    float ActiveYawRate = (WingState == EWingState::Connected) ? WingGroundYawRate : KiteYawVel;
+    float RotSpeed = FMath::Abs(ActiveYawRate);
     float RotStep = FMath::Clamp(YawDiff2, -RotSpeed * DeltaTime, RotSpeed * DeltaTime);
     // Pitch: use KitePitchOvershoot (integrated from pendulum geometry in SimulateCloth)
     float CurrentPitch = GetActorRotation().Pitch;
@@ -558,7 +579,6 @@ UpdateFlight(DeltaTime);
 	// Debug: log position at end of Tick
 	if (WingState == EWingState::Inflating)
 	{
-		static float EndLogTimer = 0.0f;
 		EndLogTimer += DeltaTime;
 		if (EndLogTimer > 0.2f)
 		{

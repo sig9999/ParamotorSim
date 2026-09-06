@@ -119,8 +119,7 @@ float HalfSpan = FMath::Max(100.0f, MaxRibY);  // Min 1m if mesh invalid
 // For each side (left=0, right=1)
 
 for (int32 side = 0; side < 2; side++)	{
-		float SideY = (side == 0) ? 21.0f : -21.0f;
-// 21cm from center (42cm total spacing)
+		float SideY = (side == 0) ? (CARABINER_SPACING_CM * 0.5f) : -(CARABINER_SPACING_CM * 0.5f);
 // NOTE: side 0 (left) = +Y because wing is spawned at PilotYaw+180 (leading edge
 // upwind). At that rotation, local +Y → world -Y = pilot's left. This keeps
 // the left carabiner/lines/brake on the pilot's left without crossing.
@@ -342,8 +341,10 @@ LP.bPinned = (seg == 0);
 LP.CanopyParticleIdx = (seg == 0) ? CanopyIdx : -1;
 LP.Radius = Lvl.Radius;
 LP.Color = Lvl.Color;
-LP.Mass = 0.5f;
-LP.Damping = 0.9f;
+// Line mass from segment length × linear density (paracord ~0.0035 kg/m for 1.5mm)
+float SegLenM = (MainLineTotal / (NumSegs + 1)) / CM_PER_M;
+LP.Mass = FMath::Max(0.001f, SegLenM * 0.0035f);  // Real paracord linear density
+LP.Damping = 0.05f;  // Low damping for cord (was 0.9 — overdamped)
 LP.Side = side;
 LP.Level = (int32)Lvl.Level;
 LP.RibIdx = rib;
@@ -619,7 +620,7 @@ int32 LocalIdx = Att.CanopyParticleIdx - CenterRib * VertsPerRib;
 int32 CenterChordTop = LocalIdx % PGPointsPerRib;
 // 0-41 (top surface)
 bool bIsBottom = LocalIdx >= PGPointsPerRib;
-int32 CenterChord = bIsBottom ? CenterChordTop : CenterChordTop;
+int32 CenterChord = CenterChordTop;  // Same for top and bottom surfaces
 // Spread across ribs and chord points
 const int32 RibSpread = 2;
 // ±2 ribs
@@ -663,12 +664,19 @@ CP.OldPos += PullLocal * Weight * 0.4f;
 }
 }
 				// Move intermediate line particles proportionally
-int32 LineStart = Att.LineParticleIdx;
-for (int32 seg = 1; seg <= 3; seg++)				{
+			// Loop against actual segment count (brake lines may have only 2 segments)
+			int32 LineStart = Att.LineParticleIdx;
+			int32 MaxSegs = 3;  // Default for main lines
+			// Count actual segments for this line
+			int32 SegCount = 0;
+			for (int32 s = LineStart + 1; s < LineParticles.Num() && !LineParticles[s].bPinned; s++)
+				SegCount++;
+			MaxSegs = FMath::Min(MaxSegs, SegCount);
+			for (int32 seg = 1; seg <= MaxSegs; seg++)				{
 					if (LineStart + seg >= LineParticles.Num()) break;
 if (!LineParticles[LineStart + seg].bPinned)					{
-						LineParticles[LineStart + seg].Pos += PullLocal * (float)seg / 4.0f;
-LineParticles[LineStart + seg].OldPos += PullLocal * (float)seg / 4.0f;
+						LineParticles[LineStart + seg].Pos += PullLocal * (float)seg / (float)(MaxSegs + 1);
+LineParticles[LineStart + seg].OldPos += PullLocal * (float)seg / (float)(MaxSegs + 1);
 }
 }
 }

@@ -153,6 +153,8 @@ private:
 	FQuat SavedRagdollQuat;
 	FVector SavedRagdollLocation;
 	float TripRiskAccumulator = 0.0f; // Accumulates trip risk while running with high thrust
+	float AirTimeAccum = 0.0f;       // Air time during thrust (instance member, was static)
+	float MaxAirHeight = 0.0f;       // Max height during air episode (instance member, was static)
 
 	// Current thrust from paramotor (set by player controller)
 	float CurrentThrust = 0.0f;

@@ -166,6 +166,7 @@ void AParamotorActor::BuildParamotorMeshes()
 			BaseName == TEXT("Prop_HubCone"))
 		{
 			PropMeshes.Add(MeshComp);
+			PropMeshBaseTransforms.Add(MeshComp->GetRelativeTransform());  // Store base for rotation
 		}
 	}
 
@@ -287,7 +288,7 @@ void AParamotorActor::Tick(float DeltaTime)
 		// At peak: τ = 18500 / (7800 × 2π/60) = 22.6 N·m
 		// Prop torque: τ_prop = P_prop / ω_prop (absorbed by aerodynamic drag)
 		// Inertia: J ≈ 0.05 kg·m² (engine + prop + reduction)
-		float IdleRPM = 2500.0f;
+		float IdleRPMVal = IDLE_RPM;  // Use project constant (was hardcoded 2500.0f)
 		float EngineOmega = EngineRPM * 2.0f * PI / 60.0f;  // rad/s
 		float PropOmega = GetPropRPM() * 2.0f * PI / 60.0f;
 
@@ -302,15 +303,19 @@ void AParamotorActor::Tick(float DeltaTime)
 		// Real Moster 185 idle: ~2500 RPM, ~1.5 kW (typical 2-stroke idle power)
 		// τ_idle = P_idle / ω_idle = 1500 / (2500 × 2π/60) ≈ 5.7 N·m
 		float IdlePowerW = 1500.0f;  // Real idle power for Moster 185
-		float IdleOmega = IdleRPM * 2.0f * PI / 60.0f;
-		float IdleTorque = (EngineRPM < IdleRPM) ? IdlePowerW / FMath::Max(1.0f, IdleOmega) : 0.0f;
+		float IdleOmega = IdleRPMVal * 2.0f * PI / 60.0f;
+		float IdleTorque = (EngineRPM < IdleRPMVal) ? IdlePowerW / FMath::Max(1.0f, IdleOmega) : 0.0f;
 
 		// Propeller torque: from blade element theory (same model as thrust)
 		// τ_prop = Σ (dL×sin(φ) + dD×cos(φ)) × r for each blade element
 		float AirspeedForTorque = 0.0f;
-		if (AActor* OwnerActor = GetOwner())
-			AirspeedForTorque = OwnerActor->GetVelocity().Size() / 100.0f;
+		// Use GetAttachParentActor() (the pilot) for velocity — attachment doesn't set Owner
+		if (AActor* ParentActor = GetAttachParentActor())
+			AirspeedForTorque = ParentActor->GetVelocity().Size() / 100.0f;
 		float PropTorque = GetPropTorqueNM(AirspeedForTorque);
+		// Prop torque is at the propeller shaft — divide by reduction ratio to get
+		// engine-shaft torque (the engine sees less torque through the gear reduction)
+		float PropTorqueAtEngine = PropTorque / PROP_REDUCTION_RATIO;
 
 		// Engine rotational inertia (kg·m²) — real Moster 185 value
 		// Crank + flywheel: ~0.03 kg·m². Propeller (1.3m, 1.5kg): I = m×r²/3 ≈ 0.085 kg·m²
@@ -318,7 +323,7 @@ void AParamotorActor::Tick(float DeltaTime)
 		float EngineInertia = 0.12f;
 
 		// Net torque → angular acceleration → RPM change
-		float NetTorque = EngineTorque + IdleTorque - PropTorque;
+		float NetTorque = EngineTorque + IdleTorque - PropTorqueAtEngine;
 		float AngularAccel = NetTorque / EngineInertia;  // rad/s²
 		EngineOmega += AngularAccel * DeltaTime;
 		EngineRPM = EngineOmega * 60.0f / (2.0f * PI);
@@ -377,16 +382,18 @@ void AParamotorActor::Tick(float DeltaTime)
 		// Rotate prop meshes around the X axis (prop shaft)
 		{
 			FQuat PropQuat = FQuat(FVector::ForwardVector, PropRotation);
-			for (UStaticMeshComponent* PropMesh : PropMeshes)
+			for (int32 i = 0; i < PropMeshes.Num(); i++)
 			{
-				FTransform RelTransform = PropMesh->GetRelativeTransform();
-				FVector RelPos = RelTransform.GetTranslation();
+				if (i >= PropMeshBaseTransforms.Num()) break;
+				// Rotate from BASE transform (not current) to avoid compounding
+				FTransform BaseTransform = PropMeshBaseTransforms[i];
+				FVector RelPos = BaseTransform.GetTranslation();
 				FVector PropCenter = FVector(15.0f, 0.0f, 73.0f);
 				FVector Offset = RelPos - PropCenter;
 				FVector NewOffset = PropQuat.RotateVector(Offset);
 				FVector NewPos = PropCenter + NewOffset;
-				FQuat NewRot = PropQuat * RelTransform.GetRotation();
-				PropMesh->SetRelativeLocationAndRotation(NewPos, NewRot);
+				FQuat NewRot = PropQuat * BaseTransform.GetRotation();
+				PropMeshes[i]->SetRelativeLocationAndRotation(NewPos, NewRot);
 			}
 		}
 
@@ -423,16 +430,17 @@ void AParamotorActor::Tick(float DeltaTime)
 			PropRotation += PropOmega * DeltaTime;
 
 			FQuat PropQuat = FQuat(FVector::ForwardVector, PropRotation);
-			for (UStaticMeshComponent* PropMesh : PropMeshes)
+			for (int32 i = 0; i < PropMeshes.Num(); i++)
 			{
-				FTransform RelTransform = PropMesh->GetRelativeTransform();
-				FVector RelPos = RelTransform.GetTranslation();
+				if (i >= PropMeshBaseTransforms.Num()) break;
+				FTransform BaseTransform = PropMeshBaseTransforms[i];
+				FVector RelPos = BaseTransform.GetTranslation();
 				FVector PropCenter = FVector(15.0f, 0.0f, 73.0f);
 				FVector Offset = RelPos - PropCenter;
 				FVector NewOffset = PropQuat.RotateVector(Offset);
 				FVector NewPos = PropCenter + NewOffset;
-				FQuat NewRot = PropQuat * RelTransform.GetRotation();
-				PropMesh->SetRelativeLocationAndRotation(NewPos, NewRot);
+				FQuat NewRot = PropQuat * BaseTransform.GetRotation();
+				PropMeshes[i]->SetRelativeLocationAndRotation(NewPos, NewRot);
 			}
 		}
 
@@ -608,11 +616,8 @@ float AParamotorActor::GetThrustForceN(float AirspeedMs) const
 	float PropRPM = GetPropRPM();
 	// No RPM cutoff - blade element produces small forces naturally at low RPM
 
-	// Altitude-dependent air density (ISA model)
-	float AltitudeM = 0.0f;
-	AActor* OwnerActor = GetOwner();
-	if (OwnerActor)
-		AltitudeM = OwnerActor->GetActorLocation().Z / 100.0f;
+	// Altitude-dependent air density (ISA model) — use this actor's location
+	float AltitudeM = GetActorLocation().Z / 100.0f;
 	float Rho = AirDensityAtAltitude(AltitudeM);
 	float Omega = PropRPM * 2.0f * PI / 60.0f;  // Angular velocity (rad/s)
 	float PropRadius = PROP_DIAMETER_CM / 2.0f / 100.0f;  // meters
@@ -715,10 +720,8 @@ float AParamotorActor::GetPropTorqueNM(float AirspeedMs) const
 	float PropRPM = GetPropRPM();
 	// No RPM cutoff - blade element produces small forces naturally
 
-	float AltitudeM = 0.0f;
-	AActor* OwnerActor = GetOwner();
-	if (OwnerActor)
-		AltitudeM = OwnerActor->GetActorLocation().Z / 100.0f;
+	// Altitude from this actor's location (not GetOwner — attachment doesn't set Owner)
+	float AltitudeM = GetActorLocation().Z / 100.0f;
 	float Rho = AirDensityAtAltitude(AltitudeM);
 	float Omega = PropRPM * 2.0f * PI / 60.0f;
 	float PropRadius = PROP_DIAMETER_CM / 2.0f / 100.0f;

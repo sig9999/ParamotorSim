@@ -97,6 +97,10 @@ protected:
 	UPROPERTY()
 	TArray<UStaticMeshComponent*> PropMeshes;
 
+	// Base relative transforms of prop meshes (stored once to avoid rotation compounding)
+	UPROPERTY()
+	TArray<FTransform> PropMeshBaseTransforms;
+
 	bool bEquipped = false;
 
 	// Engine state
