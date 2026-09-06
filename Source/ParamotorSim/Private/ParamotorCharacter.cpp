@@ -513,7 +513,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			float RollingResistanceN = RollingMu * TotalMass * GRAVITY_MS2;  // mu * N
 			float MaxRunSpeedMs = (RollingResistanceN > 1.0f) ? PilotLegPowerW / RollingResistanceN : 8.0f;
 			MaxRunSpeedMs = FMath::Clamp(MaxRunSpeedMs, 1.5f, 12.0f);  // Physical human bounds
-			const float MaxRunSpeed = MaxRunSpeedMs * 100.0f;  // cm/s
+			const float MaxRunSpeed = MaxRunSpeedMs  * CM_PER_M;  // cm/s
 
 			// Allow speed to build up to the max running speed
 			GetCharacterMovement()->MaxWalkSpeed = MaxRunSpeed;
@@ -527,7 +527,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			float ThrustForceN = 0.0f;
 			if (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped())
 			{
-				float AirspeedMs = GetVelocity().Size() / 100.0f;
+				float AirspeedMs = GetVelocity().Size()  / CM_PER_M;
 				ThrustForceN = PC->GetSpawnedParamotorActor()->GetThrustForceN(AirspeedMs);
 			}
 			float ThrustForceUE = ThrustForceN * CM_PER_M;
@@ -631,10 +631,10 @@ void AParamotorCharacter::Tick(float DeltaTime)
 		float ThrustForceN = 0.0f;
 		if (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped())
 		{
-			float AirspeedMs = GetVelocity().Size() / 100.0f;
+			float AirspeedMs = GetVelocity().Size()  / CM_PER_M;
 			ThrustForceN = PC->GetSpawnedParamotorActor()->GetThrustForceN(AirspeedMs);
 		}
-		float ThrustForceUE = ThrustForceN * 100.0f;
+		float ThrustForceUE = ThrustForceN  * CM_PER_M;
 		float CharMass = GetCharacterMovement()->Mass;
 		if (CharMass <= 0.0f) CharMass = 100.0f;
 		float Accel = ThrustForceUE / CharMass;
@@ -670,7 +670,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			if (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped())
 			{
 				// Use real propeller thrust from the paramotor actor
-				ThrustN = PC->GetSpawnedParamotorActor()->GetThrustForceN(GetVelocity().Size() / 100.0f);
+				ThrustN = PC->GetSpawnedParamotorActor()->GetThrustForceN(GetVelocity().Size()  / CM_PER_M);
 			}
 			else
 			{
@@ -682,7 +682,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 			// Forward momentum provides a restoring moment (inertia straightens pilot)
 			// M_momentum = m × v × h / dt ≈ m × v² × h / stride_length
 			// At running speed, this counteracts the thrust lean
-			float SpeedMs = GroundSpeed / 100.0f;
+			float SpeedMs = GroundSpeed  / CM_PER_M;
 			float MomentumLean = FMath::Atan2(CharMass * SpeedMs * SpeedMs * ThrustHeightM, GravityN * CGOffsetM) * 180.0f / PI;
 			TargetLeanPitch = FMath::Max(0.0f, ThrustLean - MomentumLean);
 		}
@@ -842,7 +842,7 @@ void AParamotorCharacter::Tick(float DeltaTime)
 		float ThrustForceN = 0.0f;
 		if (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped())
 		{
-			float AirspeedMs = GetVelocity().Size() / 100.0f;
+			float AirspeedMs = GetVelocity().Size()  / CM_PER_M;
 			ThrustForceN = PC->GetSpawnedParamotorActor()->GetThrustForceN(AirspeedMs);
 		}
 		float ThrustMoment = ThrustForceN * ThrustHeightM;
@@ -1065,7 +1065,7 @@ void AParamotorCharacter::Trip()
 
 	// === Trip can cause ankle injury if fast/hard ===
 	// Running trips at speed can twist an ankle
-	float TripSpeed = GetVelocity().Size2D() / 100.0f;  // m/s
+	float TripSpeed = GetVelocity().Size2D()  / CM_PER_M;  // m/s
 	ApplyImpactInjury(TripSpeed, true);
 }
 

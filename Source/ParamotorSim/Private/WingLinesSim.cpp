@@ -391,7 +391,7 @@ void AWingActor::SimulateLines(float DeltaTime){
 // For Dyneema 1.5mm: T~50N, μ~0.002 kg/m → c ~160 m/s
 // Response time: τ = L/c = 7m/160 = 0.044s → very fast
 // The FInterpTo rate corresponds to 1/τ ≈ 23/s
-float BrakeResponseSpeed = 1.0f / (LINE_LENGTH_CM / 100.0f / 160.0f);  // tau = L/c, c=160m/s
+float BrakeResponseSpeed = 1.0f / (LINE_LENGTH_CM  / CM_PER_M / 160.0f);  // tau = L/c, c=160m/s
 	LeftBrakeAmount =
 FMath::FInterpTo(LeftBrakeAmount, LeftBrakeTarget, DeltaTime, BrakeResponseSpeed);
 RightBrakeAmount = FMath::FInterpTo(RightBrakeAmount, RightBrakeTarget, DeltaTime, BrakeResponseSpeed);
@@ -519,8 +519,8 @@ float SegLenM = 2.0f;  // Default segment length (m)
 // Apparent wind = wind - line velocity (line moves with wing)
 // During flight, also subtract pilot velocity for apparent wind
 FVector LineVel = (LP.Pos - LP.OldPos) / FMath::Max(DeltaTime, 0.001f);
-FVector ApparentWindLocal = WindDirLocal * WindMs * 100.0f - PilotVelLocal - LineVel;
-float ApparentWindMs = ApparentWindLocal.Size() / 100.0f;
+FVector ApparentWindLocal = WindDirLocal * WindMs  * CM_PER_M - PilotVelLocal - LineVel;
+float ApparentWindMs = ApparentWindLocal.Size()  / CM_PER_M;
 FVector ApparentWindDir = ApparentWindLocal.GetSafeNormal();
 float LineDragN = 0.5f * AIR_DENSITY_SEA_LEVEL * ApparentWindMs * ApparentWindMs * LineDiameterM * SegLenM * 1.0f;
 float LineDragAccel = (LineDragN / FMath::Max(0.0001f, LP.Mass)) * CM_PER_M;

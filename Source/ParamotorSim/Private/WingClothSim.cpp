@@ -575,7 +575,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 			WingVel = WingGroundVel;
 			WingGroundVel = FVector::ZeroVector;
 			UE_LOG(LogTemp, Warning, TEXT("WingActor: Inflation started from A-line pull (fill=%.0f%%, wind=%.1f m/s)"),
-				AvgFill * 100.0f, CurrentWindSpeed);
+				AvgFill  * CM_PER_M, CurrentWindSpeed);
 		}
 	}
 
@@ -591,7 +591,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 			APawn* Pawn = Cast<APawn>(ConnectedParamotor->GetAttachParentActor());
 			if (Pawn)
 			{
-				PilotVel = Pawn->GetVelocity() / 100.0f;
+				PilotVel = Pawn->GetVelocity()  / CM_PER_M;
 				SpeedMs = PilotVel.Size();
 				PilotFwdDir = Pawn->GetActorForwardVector();
 				PilotFwdDir.Z = 0;
@@ -630,7 +630,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 		// - No tension at all → wing deflates, loses all shape
 		float LineSlack = FMath::Clamp((LINE_LENGTH_CM - DistFromCarab) / LINE_LENGTH_CM, 0.0f, 1.0f);
 		// Tension also requires the wing to be above the carabiner (gravity loading)
-		float GravityLoading = FMath::Clamp(HeightAboveCarab / 100.0f, 0.0f, 1.0f);
+		float GravityLoading = FMath::Clamp(HeightAboveCarab  / CM_PER_M, 0.0f, 1.0f);
 		// Target tension: 1.0 when at line length and above carabiner, 0 when slack or low
 		float TargetTension = (1.0f - LineSlack) * GravityLoading;
 		// Smooth the tension transition (lines don't snap taut instantly)
@@ -1061,7 +1061,7 @@ if (!PB.bPinned && !PB.bGrabbed) PB.Pos -= Offset;
 				{
 					float LEWeight = 1.0f - (ChordT / 0.2f);
 					// Use TurbLongState (smooth, filtered) — positive gust = more pressure = LE up
-					GustForce = FVector(0, 0, TurbLongState * LEWeight * Rho * 100.0f);
+					GustForce = FVector(0, 0, TurbLongState * LEWeight * Rho  * CM_PER_M);
 				}
 			}
 

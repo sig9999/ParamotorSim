@@ -124,11 +124,11 @@ CurPilotVel.Y += WindPullVel.Y;
 // Wind pull is naturally limited by drag equilibrium — no artificial cap needed
 // The wing can only pull the pilot at the wind speed (drag = 0 when at wind speed)
 Char->GetCharacterMovement()->Velocity = CurPilotVel;
-float HeadwindMs = -FVector::DotProduct(GroundApparentWind, PilotFwd) / 100.0f;
+float HeadwindMs = -FVector::DotProduct(GroundApparentWind, PilotFwd)  / CM_PER_M;
 // Airspeed = headwind component only (tailwind = no lift)
 float AirspeedMs = FMath::Max(0.0f, HeadwindMs);
 // No airspeed cap — lift/weight balance naturally limits takeoff speed
-float GroundSpeedMs = HorizVel.Size() / 100.0f;
+float GroundSpeedMs = HorizVel.Size()  / CM_PER_M;
 float AirspeedMph = AirspeedMs * MPH_PER_MS;
 float GroundSpeedMph = GroundSpeedMs * MPH_PER_MS;
 // === WING LIFT (from cell pressure model — real physics) ===
@@ -142,7 +142,7 @@ float LiftN = GetTotalCellLiftN();
 // At ground: +20%, at 10m (1 wingspan): +3%, at 20m: negligible
 FVector CharLoc = Char->GetActorLocation();
 float GZ = GetGroundZ(CharLoc);
-float HeightAboveGround = FMath::Max(0.0f, (CharLoc.Z - GZ) / 100.0f);  // meters
+float HeightAboveGround = FMath::Max(0.0f, (CharLoc.Z - GZ)  / CM_PER_M);  // meters
 float WingspanM = FMath::Sqrt(WingModel.WingArea * WingModel.AR);  // b = sqrt(S * AR)
 // Ground effect: reduces induced drag near ground (less downwash)
 // Factor goes from 0 (full reduction at ground) to 1 (no reduction at altitude)
@@ -167,7 +167,7 @@ float WeightSupport = LiftN / WeightN;
 float NetVerticalForceN = LiftN - WeightN;
 // Apply ONLY the lift acceleration — CMC's GravityScale=1.0 handles gravity.
 // Applying (Lift - Weight) AND letting CMC apply gravity double-counts gravity.
-float UpwardLiftAccelCm = (LiftN / TotalMassKg) * 100.0f;
+float UpwardLiftAccelCm = (LiftN / TotalMassKg)  * CM_PER_M;
 // Track skip state for logging
 bool bWasOnGround = Char->GetCharacterMovement()->IsMovingOnGround();
 float PrevSkipZ = TakeoffSkipZ;
@@ -215,7 +215,7 @@ if (bWasOnGround && TakeoffSkipZ < PrevSkipZ - 1.0f)				{
 		// μ = 0.4 (rubber soles on grass). When N → 0, traction → 0 (can't run).
 		float NormalForceN = FMath::Max(0.0f, WeightN - LiftN);
 		float TractionFactor = FMath::Clamp(NormalForceN / WeightN, 0.0f, 1.0f);
-		float MaxRunSpeed = MaxRunSpeedMs * 100.0f * TractionFactor;
+		float MaxRunSpeed = MaxRunSpeedMs  * CM_PER_M * TractionFactor;
 		Char->GetCharacterMovement()->MaxWalkSpeed = MaxRunSpeed;
 // === STALL SPEED (for HUD display) ===
 float StallDenom = Rho * WingModel.WingArea * WingModel.CLMax;
@@ -233,7 +233,7 @@ DebugWeightSupport = FMath::Clamp(WeightSupport, 0.0f, 1.0f);
 
 if (GroundLogTimer > 0.2f)				{
 					GroundLogTimer = 0.0f;
-UE_LOG(LogTemp, Warning, TEXT("GRUN: air=%.1fmph grd=%.1fmph wnd=%.1fmph(±%.1f) need=%.1fmph thr=%.2f support=%.0f%% skipZ=%.0f hops=%d ge=%.2f"),						AirspeedMph, GroundSpeedMph, CurrentWindSpeed * MPH_PER_MS, GustAmplitude * MPH_PER_MS,						TakeoffSpeedMs * MPH_PER_MS, ThrottleAmount,						WeightSupport * 100.0f, TakeoffSkipZ, TakeoffFootContacts, GroundEffectDragFactor);
+UE_LOG(LogTemp, Warning, TEXT("GRUN: air=%.1fmph grd=%.1fmph wnd=%.1fmph(±%.1f) need=%.1fmph thr=%.2f support=%.0f%% skipZ=%.0f hops=%d ge=%.2f"),						AirspeedMph, GroundSpeedMph, CurrentWindSpeed * MPH_PER_MS, GustAmplitude * MPH_PER_MS,						TakeoffSpeedMs * MPH_PER_MS, ThrottleAmount,						WeightSupport  * CM_PER_M, TakeoffSkipZ, TakeoffFootContacts, GroundEffectDragFactor);
 }
 				// === NATURAL TAKEOFF ===
 		// Takeoff is a physical transition, not a timer:
@@ -303,7 +303,7 @@ EffectiveRightBrake = 0.0f;
 PilotRollAngle = 0.0f;
 PilotRollRate = 0.0f;
 
-UE_LOG(LogTemp, Warning, TEXT("WingActor: TAKEOFF! air=%.1fmph grd=%.1fmph thr=%.2f support=%.0f%% wind=%.1fmph hops=%d"),						AirspeedMph, GroundSpeedMph, ThrottleAmount,						WeightSupport * 100.0f, CurrentWindSpeed * MPH_PER_MS, TakeoffFootContacts);
+UE_LOG(LogTemp, Warning, TEXT("WingActor: TAKEOFF! air=%.1fmph grd=%.1fmph thr=%.2f support=%.0f%% wind=%.1fmph hops=%d"),						AirspeedMph, GroundSpeedMph, ThrottleAmount,						WeightSupport  * CM_PER_M, CurrentWindSpeed * MPH_PER_MS, TakeoffFootContacts);
 }
 }
 }
@@ -399,7 +399,7 @@ void AWingActor::UpdateKitingCollapses(float DeltaTime, const FVector& PilotFwd2
 			if (CollapseAmt > 0.01f)
 			{
 				UE_LOG(LogTemp, Warning, TEXT("WingActor: KITING ASYMMETRIC RIGHT COLLAPSE %.0f%%! wind=%.1f turb=%.2f resist=%.2f"),
-					CollapseAmt * 100.0f, CurrentWindSpeed, WindTurbulence, CollapseResistance);
+					CollapseAmt  * CM_PER_M, CurrentWindSpeed, WindTurbulence, CollapseResistance);
 			}
 		}
 		else
@@ -408,7 +408,7 @@ void AWingActor::UpdateKitingCollapses(float DeltaTime, const FVector& PilotFwd2
 			if (CollapseAmt > 0.01f)
 			{
 				UE_LOG(LogTemp, Warning, TEXT("WingActor: KITING ASYMMETRIC LEFT COLLAPSE %.0f%%! wind=%.1f turb=%.2f resist=%.2f"),
-					CollapseAmt * 100.0f, CurrentWindSpeed, WindTurbulence, CollapseResistance);
+					CollapseAmt  * CM_PER_M, CurrentWindSpeed, WindTurbulence, CollapseResistance);
 			}
 		}
 	}
@@ -441,12 +441,12 @@ if (ConnectedParamotor)	{
 if (Pawn)		{
 			FVector Vel = Pawn->GetVelocity();
 FVector ShiftedDir = WindDirection.RotateAngleAxis(WindDirShift * 180.0f / PI, FVector(0, 0, 1));
-FVector Wind = ShiftedDir * WindMs * 100.0f;
+FVector Wind = ShiftedDir * WindMs  * CM_PER_M;
 FVector Apparent = Wind - Vel;
 FVector Fwd = Pawn->GetActorForwardVector();
 Fwd.Z = 0;
 Fwd.Normalize();
-float Headwind = -FVector::DotProduct(Apparent, Fwd) / 100.0f;
+float Headwind = -FVector::DotProduct(Apparent, Fwd)  / CM_PER_M;
 CurrentAirspeed = FMath::Max(0.0f, Headwind);
 }
 }
@@ -457,7 +457,7 @@ float SpeedFactor = FMath::Clamp(CurrentAirspeed / TakeoffSpeed, 0.0f, 1.5f);
 // Throttle factor: need at least 25% throttle
 float ThrottleFactor = (ThrottleAmount > 0.25f) ? 1.0f : ThrottleAmount / 0.25f;
 // Combined chance
-float Chance = WeightFactor * SpeedFactor * ThrottleFactor * 100.0f;
+float Chance = WeightFactor * SpeedFactor * ThrottleFactor  * CM_PER_M;
 return FMath::Clamp(Chance, 0.0f, 100.0f);
 }
 

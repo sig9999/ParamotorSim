@@ -356,7 +356,7 @@ void AWingActor::ApplyInflatedShape(float DeltaTime){
 	}
 	else
 	{
-		MinY = 1e9; MaxY = -1e9; MinX = 1e9; MaxX = -1e9;
+		MinY = MAX_FLT; MaxY = -MAX_FLT; MinX = MAX_FLT; MaxX = -MAX_FLT;
 		for (int32 i = 0; i < PGWingVertCount; i++)
 		{
 			MinY = FMath::Min(MinY, PGWingVertices[i].Y);
