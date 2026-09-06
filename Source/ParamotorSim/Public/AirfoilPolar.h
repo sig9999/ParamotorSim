@@ -116,7 +116,7 @@ inline float TrailingEdgeDeflectionDeg(float BrakeInput, float ChordCm = 200.0f)
 {
 	float PullCm = BrakeInput * 40.0f;  // 0-40cm real brake travel
 	float Ratio = FMath::Clamp(PullCm / ChordCm, 0.0f, 0.5f);
-	return FMath::Asin(Ratio) * 180.0f / PI;  // degrees
+	return FMath::RadiansToDegrees(FMath::Asin(Ratio));  // degrees
 }
 
 // Compute camber percentage from brake input
