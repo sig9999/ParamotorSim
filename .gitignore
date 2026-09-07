@@ -27,3 +27,8 @@ Content/OA_Hightop.uasset
 Content/MetaHumans/Hightops/OA_Hightop.uasset
 # LFS storage
 .git/lfs/
+
+# Backup files (kept outside Source to avoid compilation, not needed in git)
+*_backup.cpp
+*.bak
+*_cpp.bak

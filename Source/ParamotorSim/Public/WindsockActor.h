@@ -17,11 +17,11 @@ public:
 
 	// Pole + base + strings mesh (static, doesn't move)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Windsock")
-	class UStaticMeshComponent* PoleMesh;
+	class UStaticMeshComponent* PoleMesh = nullptr;
 
 	// Fabric sock mesh (rotates/scales with wind)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Windsock")
-	class UStaticMeshComponent* SockMesh;
+	class UStaticMeshComponent* SockMesh = nullptr;
 
 	// Wind direction in degrees (0=N=+X, 90=E=+Y, 180=S, 270=W)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Wind")
@@ -36,6 +36,6 @@ public:
 	float MaxInflationSpeed = 15.0f;
 
 protected:
-	float SmoothedYaw;
-	float SmoothedInflation;
+	float SmoothedYaw = 0.0f;
+	float SmoothedInflation = 0.0f;
 };

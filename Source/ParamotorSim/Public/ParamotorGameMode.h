@@ -23,8 +23,8 @@ protected:
 
 private:
 	UPROPERTY()
-	UAudioComponent* BirdsAudio;
+	UAudioComponent* BirdsAudio = nullptr;
 
 	UPROPERTY()
-	UAudioComponent* OceanAudio;
+	UAudioComponent* OceanAudio = nullptr;
 };

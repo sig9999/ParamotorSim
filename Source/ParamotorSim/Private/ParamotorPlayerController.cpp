@@ -708,7 +708,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.AR = 5.8f;       // Higher aspect ratio (long thin wing)
 		Wing->WingModel.StallAoA = 13.0f; // Stalls earlier — twitchy
 
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
+		break;
 	case 1:  // Sig 20 — 20m², max 110kg (light pilot)
 		Wing->WingModel.Name = TEXT("Sig 20");
 		Wing->WingModel.WingArea = 20.0f;
@@ -720,7 +721,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.AR = 5.2f;
 		Wing->WingModel.StallAoA = 15.0f;
 
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
+		break;
 	case 2:  // Sig 22 — 22m², max 120kg (light-to-medium pilot)
 		Wing->WingModel.Name = TEXT("Sig 22");
 		Wing->WingModel.WingArea = 22.0f;
@@ -732,7 +734,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.AR = 5.1f;
 		Wing->WingModel.StallAoA = 15.0f;
 
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
+		break;
 	case 3:  // Sig 25 — 25m², max 130kg (standard)
 		// Realistic EN-A beginner wing values:
 		// CL0=0.50, CLMax=1.5, CD0=0.037, AR=5.0
@@ -747,7 +750,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.AR = 5.0f;
 		Wing->WingModel.StallAoA = 15.0f;
 
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
+		break;
 	case 4:  // Sig 30 — 30m², max 160kg (heavy pilot / tandem)
 		Wing->WingModel.Name = TEXT("Sig 30");
 		Wing->WingModel.WingArea = 30.0f;
@@ -759,7 +763,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.AR = 4.5f;
 		Wing->WingModel.StallAoA = 16.0f;
 
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
+		break;
 	case 5:  // Sig 35 — 35m², max 180kg (tandem / very heavy)
 		Wing->WingModel.Name = TEXT("Sig 35");
 		Wing->WingModel.WingArea = 35.0f;
@@ -771,7 +776,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.AR = 4.2f;
 		Wing->WingModel.StallAoA = 16.0f;
 
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
+		break;
 	case 6:  // MacPara Charger 25M — real reflex paramotor wing (DGAC)
 		// Real specs from MacPara Charger 1 user manual (page 39):
 		//   Zoom: 95.3% (of size 28 reference)
@@ -811,7 +817,8 @@ void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelInd
 		Wing->WingModel.AR = 5.0f;
 		Wing->WingModel.StallAoA = 15.0f;
 
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA		break;
+		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
+		break;
 	}
 }
 

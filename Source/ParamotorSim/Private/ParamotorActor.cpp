@@ -220,7 +220,11 @@ void AParamotorActor::BuildAArmHierarchy()
 	// Carabiner clips through ring
 	CarabinerMeshLeft = LoadMeshComp(TEXT("/Game/Meshes/Carabiner_Left.Carabiner_Left"), TEXT("CarabinerMesh_Left"), AArmPivotLeft);
 	// Riser webbing straps (from carabiner toward wing)
+	// NOTE: SM_RiserLines is a static mesh of the ENTIRE line set (9m wide),
+	// not just the 49cm riser strap. It can't follow the wing, so we hide it
+	// and let the procedural line mesh handle all line rendering.
 	RiserMeshLeft = LoadMeshComp(TEXT("/Game/Meshes/SM_RiserLines.SM_RiserLines"), TEXT("RiserMesh_Left"), AArmPivotLeft);
+	if (RiserMeshLeft) RiserMeshLeft->SetVisibility(false);
 	// Brake toggle handle
 	BrakeToggleMeshLeft = LoadMeshComp(TEXT("/Game/Meshes/BrakeToggle_Left.BrakeToggle_Left"), TEXT("BrakeToggle_Left"), AArmPivotLeft);
 	// Quick links (A/B/C/D)
@@ -239,61 +243,68 @@ void AParamotorActor::BuildAArmHierarchy()
 	RingMeshRight = LoadMeshComp(TEXT("/Game/Meshes/WingClip_Ring_Right.WingClip_Ring_Right"), TEXT("RingMesh_Right"), AArmPivotRight);
 	CarabinerMeshRight = LoadMeshComp(TEXT("/Game/Meshes/Carabiner_Right.Carabiner_Right"), TEXT("CarabinerMesh_Right"), AArmPivotRight);
 	RiserMeshRight = LoadMeshComp(TEXT("/Game/Meshes/SM_RiserLines.SM_RiserLines"), TEXT("RiserMesh_Right"), AArmPivotRight);
+	if (RiserMeshRight) RiserMeshRight->SetVisibility(false);
 	BrakeToggleMeshRight = LoadMeshComp(TEXT("/Game/Meshes/BrakeToggle_Right.BrakeToggle_Right"), TEXT("BrakeToggle_Right"), AArmPivotRight);
 	QuickLinkMeshes.Add(TEXT("A_Right"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_A_Right.QuickLink_A_Right"), TEXT("QuickLink_A_Right"), AArmPivotRight));
 	QuickLinkMeshes.Add(TEXT("B_Right"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_B_Right.QuickLink_B_Right"), TEXT("QuickLink_B_Right"), AArmPivotRight));
 	QuickLinkMeshes.Add(TEXT("C_Right"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_C_Right.QuickLink_C_Right"), TEXT("QuickLink_C_Right"), AArmPivotRight));
 	QuickLinkMeshes.Add(TEXT("D_Right"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_D_Right.QuickLink_D_Right"), TEXT("QuickLink_D_Right"), AArmPivotRight));
 
+	// Capture the ring mesh's world-space offset from the pivot BEFORE any rotation.
+	// The ring mesh has no relative location offset (geometry is baked into the asset),
+	// so we must compute the offset from the bounds origin relative to the pivot.
+	if (RingMeshLeft && AArmPivotLeft)
+	{
+		FVector RingWorld = RingMeshLeft->Bounds.Origin;
+		FVector PivotWorld = AArmPivotLeft->GetComponentLocation();
+		CarabinerOffsetFromPivot = AArmPivotLeft->GetComponentTransform().InverseTransformPosition(RingWorld);
+		UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Carabiner offset from pivot = %s (RingWorld=%s PivotWorld=%s)"),
+			*CarabinerOffsetFromPivot.ToString(), *RingWorld.ToString(), *PivotWorld.ToString());
+	}
+
+	// Log all A-arm component relative positions and bounds for debugging
+	auto LogComp = [](UStaticMeshComponent* Comp, const TCHAR* Label) {
+		if (!Comp) return;
+		FVector RelLoc = Comp->GetRelativeLocation();
+		FVector BoundsOrigin = Comp->Bounds.Origin;
+		FVector BoxExtent = Comp->Bounds.BoxExtent;
+		UE_LOG(LogTemp, Warning, TEXT("RISERDEBUG %s: RelLoc=%s BoundsOrigin=%s BoxExtent=%s"),
+			Label, *RelLoc.ToString(), *BoundsOrigin.ToString(), *BoxExtent.ToString());
+	};
+	LogComp(AArmMeshLeft, TEXT("AArmMesh_L"));
+	LogComp(RingMeshLeft, TEXT("RingMesh_L"));
+	LogComp(CarabinerMeshLeft, TEXT("CarabinerMesh_L"));
+	LogComp(RiserMeshLeft, TEXT("RiserMesh_L"));
+	LogComp(BrakeToggleMeshLeft, TEXT("BrakeToggle_L"));
+	if (AArmPivotLeft)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("RISERDEBUG AArmPivot_L: RelLoc=%s WorldLoc=%s"),
+			*AArmPivotLeft->GetRelativeLocation().ToString(), *AArmPivotLeft->GetComponentLocation().ToString());
+	}
+
 	UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Built A-arm hierarchy (L/R pivots + meshes)"));
 }
 
 void AParamotorActor::UpdateWingTarget(const FVector& WingWorldPos, bool bConnected)
 {
-	WingTargetPos = WingWorldPos;
-	bWingConnected = bConnected;
+	// No-op: A-arms no longer track wing position (caused wild swinging).
+	// Kept for API compatibility with WingActor::Tick.
 }
 
 void AParamotorActor::UpdateAArmPivots()
 {
 	if (!AArmPivotLeft || !AArmPivotRight) return;
 
-	if (!bWingConnected)
-	{
-		// No wing connected — A-arms hang straight down
-		AArmPivotLeft->SetRelativeRotation(FRotator(0, 0, 0));
-		AArmPivotRight->SetRelativeRotation(FRotator(0, 0, 0));
-		return;
-	}
-
-	// Get pivot world positions
-	FVector PivotLeftPos = AArmPivotLeft->GetComponentLocation();
-	FVector PivotRightPos = AArmPivotRight->GetComponentLocation();
-
-	// Direction from each pivot to the wing
-	FVector ToWingLeft = WingTargetPos - PivotLeftPos;
-	FVector ToWingRight = WingTargetPos - PivotRightPos;
-
-	// The A-arm should point toward the wing, but only the pitch (forward/back) and
-	// yaw (left/right) rotation. The A-arm pivots from the stud at the top.
-	// In local space: X = forward, Y = right, Z = up
-	// The A-arm hangs down (-Z) and swings toward the wing.
-
-	// Convert wing direction to local space of the paramotor
-	FVector LocalToWing = GetActorTransform().InverseTransformVector(ToWingLeft.GetSafeNormal());
-
-	// Pitch: how far forward/back the wing is (X component)
-	// Yaw: how far left/right the wing is (Y component)
-	float PitchDeg = FMath::Atan2(LocalToWing.X, FMath::Abs(LocalToWing.Z)) * RAD_TO_DEG;
-	float YawDeg = FMath::Atan2(LocalToWing.Y, FMath::Abs(LocalToWing.Z)) * RAD_TO_DEG;
-
-	// Clamp to reasonable A-arm swing range (±60° pitch, ±30° yaw)
-	PitchDeg = FMath::Clamp(PitchDeg, -60.0f, 60.0f);
-	YawDeg = FMath::Clamp(YawDeg, -30.0f, 30.0f);
-
-	// Apply rotation (pitch around Y axis, yaw around Z axis)
-	AArmPivotLeft->SetRelativeRotation(FRotator(PitchDeg, YawDeg, 0));
-	AArmPivotRight->SetRelativeRotation(FRotator(PitchDeg, -YawDeg, 0));
+	// A-arms always hang straight down from the frame.
+	// They do NOT track the wing position — in real life, A-arms are short
+	// and pivot only a few degrees from gravity and line tension.
+	// The riser webbing (49cm strap) handles the angular difference between
+	// the A-arm and the wing. Rotating the A-arms to track the wing causes
+	// wild swinging because the wing position oscillates from turbulence/pendulum.
+	// The line physics uses the fixed carabiner position (from GetCarabinerWorldPositions),
+	// not the A-arm rotation, so this is purely visual.
+	AArmPivotLeft->SetRelativeRotation(FRotator::ZeroRotator);
+	AArmPivotRight->SetRelativeRotation(FRotator::ZeroRotator);
 }
 
 void AParamotorActor::InitAudio()
@@ -590,38 +601,34 @@ void AParamotorActor::Interact(AParamotorCharacter* PlayerCharacter)
 
 bool AParamotorActor::GetCarabinerWorldPositions(FVector& OutLeft, FVector& OutRight) const
 {
-	// Use the ring mesh components from the A-arm hierarchy
+	// Use the A-arm PIVOT position + fixed offset (captured at setup before rotation).
+	// This breaks the feedback loop: A-arm rotation is purely visual and does NOT
+	// change the carabiner position that drives line physics.
+	// Using RingMesh->Bounds.Origin would feed A-arm rotation back into line physics,
+	// causing oscillation (wing moves → A-arm rotates → carabiner moves → lines move → wing moves).
+	if (AArmPivotLeft && AArmPivotRight && CarabinerOffsetFromPivot != FVector::ZeroVector)
+	{
+		FVector PivotLeftPos = AArmPivotLeft->GetComponentLocation();
+		FVector PivotRightPos = AArmPivotRight->GetComponentLocation();
+		// Apply the fixed offset in the pivot's local space (before rotation)
+		// Since the offset was captured before rotation, we apply it in the pivot's
+		// local space WITHOUT the current rotation — use the parent's transform.
+		FTransform PivotLeftTM = AArmPivotLeft->GetAttachParent() ? AArmPivotLeft->GetAttachParent()->GetComponentTransform() : FTransform::Identity;
+		FTransform PivotRightTM = AArmPivotRight->GetAttachParent() ? AArmPivotRight->GetAttachParent()->GetComponentTransform() : FTransform::Identity;
+		OutLeft = PivotLeftTM.TransformPosition(CarabinerOffsetFromPivot);
+		OutRight = PivotRightTM.TransformPosition(CarabinerOffsetFromPivot);
+		return true;
+	}
+
+	// Fallback: use ring mesh bounds directly (legacy, may cause feedback oscillation)
 	if (RingMeshLeft && RingMeshRight)
 	{
-		// Use mesh bounds origin (world-space center of the mesh geometry)
 		OutLeft = RingMeshLeft->Bounds.Origin;
 		OutRight = RingMeshRight->Bounds.Origin;
-		UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Carabiner rings — L=%s R=%s Dist=%.1fcm"),
-			*OutLeft.ToString(), *OutRight.ToString(), FVector::Dist(OutLeft, OutRight));
 		return true;
 	}
 
-	// Fallback: search MeshComponents for ring meshes (legacy path)
-	UStaticMeshComponent* LeftRing = nullptr;
-	UStaticMeshComponent* RightRing = nullptr;
-	for (UStaticMeshComponent* Comp : MeshComponents)
-	{
-		if (!Comp) continue;
-		FString CompName = Comp->GetName();
-		if (CompName.Contains(TEXT("WingClip_Ring_Left")))
-			LeftRing = Comp;
-		else if (CompName.Contains(TEXT("WingClip_Ring_Right")))
-			RightRing = Comp;
-	}
-
-	if (LeftRing && RightRing)
-	{
-		OutLeft = LeftRing->Bounds.Origin;
-		OutRight = RightRing->Bounds.Origin;
-		return true;
-	}
-
-	UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: WingClip rings NOT found in %d mesh components"), MeshComponents.Num());
+	UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Could not compute carabiner positions"));
 	return false;
 }
 

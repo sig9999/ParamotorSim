@@ -289,13 +289,12 @@ Tris.Add(V2);
 }
 };
 // Draw all line segments
-// Skip riser-to-carabiner constraints (both pinned) — real mesh risers handle that
+// The riser strap (carabiner to riser) is now drawn procedurally because
+// the static SM_RiserLines mesh was a full line set that couldn't follow the wing.
 for (const FClothConstraint& C : LineConstraints)	{
 		if (C.A >= LineParticles.Num() || C.B >= LineParticles.Num()) continue;
 FLineParticle& PA = LineParticles[C.A];
 FLineParticle& PB = LineParticles[C.B];
-// Skip riser strap (both carabiner and riser are pinned) — drawn by real mesh
-if (PA.bPinned && PB.bPinned) continue;
 float Radius = FMath::Max(PA.Radius, PB.Radius);
 FLinearColor Color = PA.Color;
 AddCylinder(PA.Pos, PB.Pos, Radius, Color);

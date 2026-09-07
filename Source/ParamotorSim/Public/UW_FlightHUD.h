@@ -23,56 +23,52 @@ public:
 
 protected:
 	// Compass
-	UPROPERTY() UTextBlock* CompassText;
-	UPROPERTY() UTextBlock* HeadingText;
-	UPROPERTY() UImage* HeadingIndicator;
-	UPROPERTY() UImage* WindIndicator;
-	UPROPERTY() UTextBlock* WindInfoText;
+	UPROPERTY() UTextBlock* CompassText = nullptr;
+	UPROPERTY() UTextBlock* HeadingText = nullptr;
+	UPROPERTY() UImage* HeadingIndicator = nullptr;
+	UPROPERTY() UImage* WindIndicator = nullptr;
+	UPROPERTY() UTextBlock* WindInfoText = nullptr;
 
 	// Stats
-	UPROPERTY() UTextBlock* AltitudeValue;
-	UPROPERTY() UTextBlock* SpeedValue;
-	UPROPERTY() UTextBlock* AirspeedValue;     // Airspeed (through-air, not ground speed)
-	UPROPERTY() UTextBlock* VSpeedValue;
-	UPROPERTY() UTextBlock* TempValue;
-	UPROPERTY() UTextBlock* WindSpeedValue;
+	UPROPERTY() UTextBlock* AltitudeValue = nullptr;
+	UPROPERTY() UTextBlock* SpeedValue = nullptr;
+	UPROPERTY() UTextBlock* AirspeedValue = nullptr;     // Airspeed (through-air, not ground speed)
+	UPROPERTY() UTextBlock* VSpeedValue = nullptr;
+	UPROPERTY() UTextBlock* TempValue = nullptr;
+	UPROPERTY() UTextBlock* WindSpeedValue = nullptr;
 
 	// Engine panel
-	UPROPERTY() UTextBlock* EngineStateText;
-	UPROPERTY() UTextBlock* RPMValue;
-	UPROPERTY() UProgressBar* RPMBar;
-	UPROPERTY() UTextBlock* ThrottleValue;
-	UPROPERTY() UProgressBar* ThrottleBar;
-	UPROPERTY() UTextBlock* EngTempValue;
-	UPROPERTY() UProgressBar* EngTempBar;
-	UPROPERTY() UTextBlock* EGTValue;
-	UPROPERTY() UProgressBar* EGTBar;
-	UPROPERTY() UTextBlock* FuelValue;
-	UPROPERTY() UProgressBar* FuelBar;
-	UPROPERTY() UTextBlock* FuelCutText;
-	UPROPERTY() UTextBlock* EngHoursValue;
+	UPROPERTY() UTextBlock* EngineStateText = nullptr;
+	UPROPERTY() UTextBlock* RPMValue = nullptr;
+	UPROPERTY() UProgressBar* RPMBar = nullptr;
+	UPROPERTY() UTextBlock* ThrottleValue = nullptr;
+	UPROPERTY() UProgressBar* ThrottleBar = nullptr;
+	UPROPERTY() UTextBlock* EngTempValue = nullptr;
+	UPROPERTY() UProgressBar* EngTempBar = nullptr;
+	UPROPERTY() UTextBlock* EGTValue = nullptr;
+	UPROPERTY() UProgressBar* EGTBar = nullptr;
+	UPROPERTY() UTextBlock* FuelValue = nullptr;
+	UPROPERTY() UProgressBar* FuelBar = nullptr;
+	UPROPERTY() UTextBlock* FuelCutText = nullptr;
+	UPROPERTY() UTextBlock* EngHoursValue = nullptr;
 
 	// Wing panel
-	UPROPERTY() UTextBlock* WingStateText;
-	UPROPERTY() UTextBlock* WingModelText;      // Wing model name (e.g. "Sig 25")
-	UPROPERTY() UTextBlock* BrakeLeftValue;     // Left brake input 0-100%
-	UPROPERTY() UTextBlock* BrakeRightValue;    // Right brake input 0-100%
-	UPROPERTY() UTextBlock* InflationProgressValue; // Inflation progress 0-100%
-	UPROPERTY() UProgressBar* InflationProgressBar;
-	UPROPERTY() UTextBlock* PendulumValue;
-	UPROPERTY() UTextBlock* WeightSupportValue;
-	UPROPERTY() UTextBlock* GlideRatioValue;
-	UPROPERTY() UTextBlock* PilotWeightValue;    // Total pilot+gear weight
-	UPROPERTY() UTextBlock* TakeoffChanceValue;  // Takeoff success chance %
-	UPROPERTY() UTextBlock* DebugTakeoffValue;   // Debug takeoff diagnostics
-	UPROPERTY() UTextBlock* InjuryStatusValue;   // Injury status display
-	UPROPERTY() UTextBlock* TrimmerStatusValue;  // Trimmer position display
-
-	// Wind state
-	float WindDirection = 45.0f;  // degrees, 0=N
-	float WindSpeed = 8.0f;       // knots
+	UPROPERTY() UTextBlock* WingStateText = nullptr;
+	UPROPERTY() UTextBlock* WingModelText = nullptr;      // Wing model name (e.g. "Sig 25")
+	UPROPERTY() UTextBlock* BrakeLeftValue = nullptr;     // Left brake input 0-100%
+	UPROPERTY() UTextBlock* BrakeRightValue = nullptr;    // Right brake input 0-100%
+	UPROPERTY() UTextBlock* InflationProgressValue = nullptr; // Inflation progress 0-100%
+	UPROPERTY() UProgressBar* InflationProgressBar = nullptr;
+	UPROPERTY() UTextBlock* PendulumValue = nullptr;
+	UPROPERTY() UTextBlock* WeightSupportValue = nullptr;
+	UPROPERTY() UTextBlock* GlideRatioValue = nullptr;
+	UPROPERTY() UTextBlock* PilotWeightValue = nullptr;    // Total pilot+gear weight
+	UPROPERTY() UTextBlock* TakeoffChanceValue = nullptr;  // Takeoff success chance %
+	UPROPERTY() UTextBlock* DebugTakeoffValue = nullptr;   // Debug takeoff diagnostics
+	UPROPERTY() UTextBlock* InjuryStatusValue = nullptr;   // Injury status display
+	UPROPERTY() UTextBlock* TrimmerStatusValue = nullptr;  // Trimmer position display
 
 	// Instruction text (context-sensitive on-screen guidance)
-	UPROPERTY() UTextBlock* InstructionText;
-	UPROPERTY() UBorder* InstructionPanel;
+	UPROPERTY() UTextBlock* InstructionText = nullptr;
+	UPROPERTY() UBorder* InstructionPanel = nullptr;
 };

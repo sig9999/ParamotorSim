@@ -91,12 +91,12 @@ public:
 
 protected:
 	UPROPERTY()
-	UUserWidget* PauseMenuInstance;
+	UUserWidget* PauseMenuInstance = nullptr;
 
 	UPROPERTY()
-	UUserWidget* FlightHUDInstance;
+	UUserWidget* FlightHUDInstance = nullptr;
 
-	bool bIsPaused;
+	bool bIsPaused = false;
 	float IKLogTimer = 0.0f;  // Member variable (not static) for IK debug logging
 
 	/** Apply wing model specs to a spawned wing actor */
@@ -108,7 +108,7 @@ protected:
 
 	/** The currently spawned paramotor actor (for interaction) */
 	UPROPERTY()
-	AParamotorActor* SpawnedParamotorActor;
+	AParamotorActor* SpawnedParamotorActor = nullptr;
 
 	// Throttle input state
 	bool bThrottleUpHeld = false;

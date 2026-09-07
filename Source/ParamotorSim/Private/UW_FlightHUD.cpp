@@ -548,10 +548,26 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 		HeadingText->SetText(FText::FromString(FString::Printf(TEXT("%.0f\x00B0"), Heading)));
 
 	// ============================================================
-	// Wind direction cardinal
+	// Wind direction cardinal (live from WingActor/GameInstance)
 	// ============================================================
+	float LiveWindDirDeg = 0.0f;   // degrees, 0=N=+X
+	float CompassWindMs = 6.0f;
+	if (UParamotorGameInstance* GI = GetWorld()->GetGameInstance<UParamotorGameInstance>())
+		CompassWindMs = GI->WindSpeed;
+	AParamotorPlayerController* WindPC = Cast<AParamotorPlayerController>(PC);
+	if (WindPC && WindPC->SpawnedWingActor)
+	{
+		CompassWindMs = WindPC->SpawnedWingActor->GetCurrentWindSpeedMs();
+		FVector WindDirVec = WindPC->SpawnedWingActor->GetWindDirection();
+		// WindDirection vector points in the direction wind blows FROM.
+		// Convert to compass heading: 0=N=+X, 90=E=+Y
+		WindDirVec.Z = 0.0f;
+		if (WindDirVec.Size2D() > 0.01f)
+			LiveWindDirDeg = FMath::Atan2(WindDirVec.Y, WindDirVec.X) * RAD_TO_DEG;
+	}
+
 	FString WindCard;
-	int32 WD = FMath::RoundToInt(WindDirection);
+	int32 WD = FMath::RoundToInt(LiveWindDirDeg);
 	while (WD < 0) WD += 360;
 	while (WD >= 360) WD -= 360;
 	if (WD >= 337 || WD < 23) WindCard = TEXT("N");
@@ -564,7 +580,7 @@ void UUW_FlightHUD::NativeTick(const FGeometry& MyGeometry, float DeltaTime)
 	else WindCard = TEXT("NW");
 
 	if (WindInfoText)
-		WindInfoText->SetText(FText::FromString(FString::Printf(TEXT("Wind: %s %.0fmph"), *WindCard, WindSpeed * 1.15078f)));
+		WindInfoText->SetText(FText::FromString(FString::Printf(TEXT("Wind: %s %.0fmph"), *WindCard, CompassWindMs * MPH_PER_MS)));
 
 	// ============================================================
 	// Altitude (cm -> ft)

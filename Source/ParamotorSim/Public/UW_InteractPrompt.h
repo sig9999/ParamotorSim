@@ -13,5 +13,5 @@ public:
 	virtual void NativeOnInitialized() override;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Prompt")
-	class UTextBlock* PromptText;
+	class UTextBlock* PromptText = nullptr;
 };

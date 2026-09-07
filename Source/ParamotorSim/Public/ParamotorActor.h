@@ -74,15 +74,15 @@ public:
 protected:
 	// Root scene component
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Paramotor")
-	USceneComponent* Root;
+	USceneComponent* Root = nullptr;
 
 	// Interaction sphere
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Paramotor")
-	USphereComponent* InteractionSphere;
+	USphereComponent* InteractionSphere = nullptr;
 
 	// Prompt widget component
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Paramotor")
-	UWidgetComponent* PromptWidget;
+	UWidgetComponent* PromptWidget = nullptr;
 
 	// Audio components
 	UPROPERTY()
@@ -108,6 +108,10 @@ protected:
 	USceneComponent* AArmPivotLeft = nullptr;
 	UPROPERTY()
 	USceneComponent* AArmPivotRight = nullptr;
+
+	// Fixed carabiner offset from A-arm pivot (captured at setup, before any rotation).
+	// Used for physics carabiner positions so A-arm rotation doesn't feed back into line physics.
+	FVector CarabinerOffsetFromPivot = FVector::ZeroVector;
 
 	// A-arm mesh components (attached to pivots)
 	UPROPERTY()
@@ -142,10 +146,6 @@ protected:
 	// Quick link mesh components (connect risers to lines)
 	UPROPERTY()
 	TMap<FString, UStaticMeshComponent*> QuickLinkMeshes;
-
-	// Target wing world position (set by WingActor for A-arm orientation)
-	FVector WingTargetPos = FVector::ZeroVector;
-	bool bWingConnected = false;
 
 	// Prop mesh components (for rotation)
 	UPROPERTY()

@@ -81,32 +81,32 @@ protected:
 
 private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<class UCameraComponent> Camera;
+	TObjectPtr<class UCameraComponent> Camera = nullptr;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SpringArm", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<class USpringArmComponent> SpringArm;
+	TObjectPtr<class USpringArmComponent> SpringArm = nullptr;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Mesh", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<class USkeletalMeshComponent> HeadMesh;
+	TObjectPtr<class USkeletalMeshComponent> HeadMesh = nullptr;
 
 	// Clothing components (techwear outfit + shoes)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Mesh", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<class USkeletalMeshComponent> OutfitMesh;
+	TObjectPtr<class USkeletalMeshComponent> OutfitMesh = nullptr;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Mesh", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<class USkeletalMeshComponent> ShoesMesh;
+	TObjectPtr<class USkeletalMeshComponent> ShoesMesh = nullptr;
 
 	UPROPERTY()
-	TObjectPtr<class UAnimSequence> WalkIdleAnim;
+	TObjectPtr<class UAnimSequence> WalkIdleAnim = nullptr;
 
 	UPROPERTY()
-	TObjectPtr<class UAnimSequence> WalkAnimAsset;
+	TObjectPtr<class UAnimSequence> WalkAnimAsset = nullptr;
 
 	UPROPERTY()
-	TObjectPtr<class UAnimSequence> JogAnimAsset;
+	TObjectPtr<class UAnimSequence> JogAnimAsset = nullptr;
 
 	UPROPERTY()
-	TObjectPtr<class UAnimSequence> CurrentAnim;
+	TObjectPtr<class UAnimSequence> CurrentAnim = nullptr;
 
 	// Audio
 	UPROPERTY()
@@ -183,4 +183,16 @@ private:
 	void StopJump();
 	void StartSprint();
 	void StopSprint();
+
+	// === TICK SPLIT HELPERS ===
+	// Returns true if the fall is being handled (caller should early-return).
+	bool UpdateFallState(float DeltaTime, UCharacterMovementComponent* CMC, float EffectiveMaxSpeed);
+	void UpdateThrustGroundPhysics(float DeltaTime, UCharacterMovementComponent* CMC, float EffectiveMaxSpeed, bool bOnGround, bool bThrustActive, class AParamotorPlayerController* PC);
+	void UpdateThrustAirPhysics(float DeltaTime, UCharacterMovementComponent* CMC, bool bThrustActive, bool bOnGround, bool bWingFlying, class AParamotorPlayerController* PC);
+	void UpdatePostureLean(float DeltaTime, UCharacterMovementComponent* CMC, class AParamotorPlayerController* PC);
+	void UpdateAnimationState(float DeltaTime, UCharacterMovementComponent* CMC);
+	void UpdateFootstepAudio(float DeltaTime, UCharacterMovementComponent* CMC);
+	void UpdateWindAudio();
+	void UpdateTripRisk(float DeltaTime, UCharacterMovementComponent* CMC, class AParamotorPlayerController* PC);
+	void UpdateRotationHandling(float DeltaTime);
 };

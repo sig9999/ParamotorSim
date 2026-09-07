@@ -119,13 +119,6 @@ inline float TrailingEdgeDeflectionDeg(float BrakeInput, float ChordCm = 200.0f)
 	return FMath::RadiansToDegrees(FMath::Asin(Ratio));  // degrees
 }
 
-// Compute camber percentage from brake input
-// 4% camber at 0% brake, 8% camber at 100% brake
-inline float EffectiveCamberPercent(float BrakeInput)
-{
-	return 4.0f + BrakeInput * 4.0f;  // 4% → 8%
-}
-
 inline void LookupAirfoilPolarWithCamber(float AoA, float BrakeInput, float& OutCL, float& OutCD)
 {
 	// Get base polar values (NACA 4415, 4% camber)
@@ -145,85 +138,4 @@ inline void LookupAirfoilPolarWithCamber(float AoA, float BrakeInput, float& Out
 
 	// Stall AoA shifts slightly lower with high camber
 	// (already handled by the AoA calculation — brake increases AoA)
-}
-
-// ============================================================
-// LIFTING LINE THEORY — spanwise lift distribution correction
-//
-// Real wings don't have uniform lift across the span. The lift distribution
-// affects induced drag and turn characteristics. For a paraglider:
-//
-// - The lift distribution is approximately elliptical (ideal for min drag)
-// - Real paragliders have a rectangular-ish planform with some taper
-// - The Schrenk approximation: distribution = (elliptical + rectangular) / 2
-// - The span efficiency factor (Oswald efficiency) accounts for non-elliptical distribution
-//
-// For a paraglider with AR=5.0, the Oswald efficiency is typically 0.85-0.92.
-// This is already used in the induced drag formula: CD_i = CL² / (π · AR · e)
-//
-// The lifting line correction here computes the LOCAL lift coefficient at each
-// spanwise station, which is used for:
-// 1. More accurate stall detection (tips stall before center)
-// 2. Roll moment from asymmetric lift distribution
-// 3. More realistic turn dynamics
-//
-// Spanwise position: y = -b/2 (left tip) to +b/2 (right tip)
-// Local chord: for a rectangular wing, c(y) = c_avg
-// Local CL: CL(y) = CL_avg * distribution(y) / avg_distribution
-// ============================================================
-
-// Schrenk lift distribution at spanwise station y/(b/2)
-// Returns a value 0-1 representing the relative lift at that station
-// y_norm = -1 (left tip) to +1 (right tip), 0 = center
-inline float SchrenkDistribution(float yNorm)
-{
-	// Elliptical distribution: 4/π * sqrt(1 - y²)
-	float Elliptical = (4.0f / PI) * FMath::Sqrt(FMath::Max(0.0f, 1.0f - yNorm * yNorm));
-	// Rectangular distribution: 1.0 (uniform)
-	float Rectangular = 1.0f;
-	// Schrenk approximation: average of elliptical and rectangular
-	return (Elliptical + Rectangular) * 0.5f;
-}
-
-// Compute local CL at a spanwise station
-// yNorm: -1 (left tip) to +1 (right tip)
-// CLavg: average CL across the wing (from polar lookup)
-// Returns the local CL at that station
-inline float LocalCL(float yNorm, float CLavg)
-{
-	float Dist = SchrenkDistribution(yNorm);
-	float DistCenter = SchrenkDistribution(0.0f);  // Distribution at center
-	// Scale so that the average matches CLavg
-	return CLavg * (Dist / DistCenter);
-}
-
-// Compute the roll moment coefficient from asymmetric lift distribution
-// This is used when brake input creates asymmetric lift (turning)
-// LeftBrake, RightBrake: 0-1 brake input per side
-// CLavg: average CL
-// Returns roll moment coefficient (positive = roll right)
-inline float RollMomentFromBrakeAsym(float LeftBrake, float RightBrake, float CLavg)
-{
-	// Sample lift at 5 spanwise stations on each side
-	float RollMoment = 0.0f;
-	int32 N = 5;
-	for (int32 i = 0; i < N; i++)
-	{
-		float yNorm = (float)(i + 1) / (float)N;  // 0.2, 0.4, 0.6, 0.8, 1.0
-		// Left side (negative y): affected by left brake
-		float LeftCL = LocalCL(-yNorm, CLavg);
-		// Brake reduces lift on that side (increases drag, decreases effective AoA locally)
-		// Actually, brake INCREASES CL initially (camber) but past stall it drops
-		// For roll moment: the drag increase on the braked side creates yaw, not roll
-		// The lift increase from camber on the braked side actually creates roll AWAY
-		// But the drag increase dominates the turning behavior
-		// For simplicity: brake creates a yaw moment (handled elsewhere) and a small roll
-		float LeftMoment = LeftCL * yNorm;  // moment arm = yNorm
-		// Right side
-		float RightCL = LocalCL(yNorm, CLavg);
-		float RightMoment = RightCL * yNorm;
-		RollMoment += RightMoment - LeftMoment;
-	}
-	RollMoment /= N;
-	return RollMoment;
 }

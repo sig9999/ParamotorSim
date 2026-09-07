@@ -182,7 +182,6 @@ public:
 	FWingModel WingModel;
 
 	// Get wing info for HUD
-	FString GetWingName() const { return WingModel.Name; }
 	float GetTakeoffChance() const;  // 0-100% based on weight, wind, airspeed
 
 	// === TRIMMER PUBLIC API ===
@@ -245,7 +244,6 @@ public:
 	float GetDebugThrottle() const { return ThrottleAmount; }
 	float GetDebugTakeoffThreshold() const { return DebugTakeoffThreshold; }
 	float GetDebugWeightSupport() const { return DebugWeightSupport; }
-	bool IsGroundRunActive() const { return WingState == EWingState::Inflated; }
 
 	// Force takeoff for debugging
 	void ForceTakeoff();
@@ -268,16 +266,16 @@ public:
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wing")
-	USceneComponent* Root;
+	USceneComponent* Root = nullptr;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wing")
-	UProceduralMeshComponent* CanopyMesh;
+	UProceduralMeshComponent* CanopyMesh = nullptr;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wing")
-	UStaticMeshComponent* BagMesh;
+	UStaticMeshComponent* BagMesh = nullptr;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wing")
-	UProceduralMeshComponent* LineMesh;
+	UProceduralMeshComponent* LineMesh = nullptr;
 
 	// LineMID removed (was unused)
 
@@ -587,6 +585,11 @@ protected:
 	int32 LeftBrakeHandleIdx = -1;
 	int32 RightBrakeHandleIdx = -1;
 
+	// Smoothed riser directions — prevents whipping when wing position jitters.
+	// Real risers are stiff webbing straps that don't instantaneously change direction.
+	FVector LeftRiserDir = FVector::UpVector;
+	FVector RightRiserDir = FVector::UpVector;
+
 	// Physics parameters — all in cm/s² (Unreal units)
 	float Gravity = GRAVITY_CM_S2;  // Unified gravity (was 600, inconsistent with flight's 980)
 	float Damping = 0.85f;
@@ -667,4 +670,198 @@ protected:
 	// === CACHED GAME INSTANCE ===
 	UPROPERTY()
 	class UParamotorGameInstance* CachedGameInstance = nullptr;
+
+	// ============================================================
+	// FFlightContext — per-frame shared state for UpdateFlight helpers
+	// Holds locals that are produced by one section and consumed by
+	// later sections. Declared as a nested struct so the split helpers
+	// can read/write the same values without duplicating state in the
+	// actor itself. All values are reset at the start of UpdateFlight.
+	// ============================================================
+	struct FFlightContext
+	{
+		// Inputs (set once at start of UpdateFlight)
+		APawn* Pawn = nullptr;
+		ACharacter* Char = nullptr;
+		FVector Vel = FVector::ZeroVector;
+		float DeltaTime = 0.0f;
+
+		// Environment (UpdateFlightEnvironment)
+		FVector ShiftedWindDir = FVector::ZeroVector;
+		FVector Wind = FVector::ZeroVector;
+		FVector ApparentWind = FVector::ZeroVector;
+		FVector HorizApparent = FVector::ZeroVector;
+		FVector AltitudeWind = FVector::ZeroVector;
+		FVector TurbulenceVelocity = FVector::ZeroVector;
+		float HorizSpeed = 0.0f;
+		float Vms = 0.0f;
+		float AltitudeM = 0.0f;
+		float Rho = AIR_DENSITY_SEA_LEVEL;
+		float TurbStrength = 0.0f;
+		float TurbulenceAoA = 0.0f;
+		float ThermalLiftMs = 0.0f;
+
+		// Aerodynamic coefficients (UpdateAerodynamicCoefficients)
+		float HalfArea = 0.0f;
+		float StallAoA = 0.0f;
+		float WingspanM = 0.0f;
+		float LeftAoA = 0.0f;
+		float RightAoA = 0.0f;
+		float LeftCL = 0.0f;
+		float RightCL = 0.0f;
+		float LeftCD = 0.0f;
+		float RightCD = 0.0f;
+		float GroundEffectFactor = 1.0f;
+		float CL = 0.0f;
+		float CDWing = 0.0f;
+
+		// Collapse (UpdateCollapseDetection)
+		float CellDeflateRate = 0.0f;
+		float CellRefillRate = 0.0f;
+		float RefillDelay = 0.0f;
+
+		// Forces (UpdateFlightForces)
+		float Vtot = 0.0f;
+		float VmsTotal = 0.0f;
+		FVector ApparentDir = FVector::ZeroVector;
+		float LeftLiftN = 0.0f;
+		float RightLiftN = 0.0f;
+		float LiftN = 0.0f;
+		float LeftDragN = 0.0f;
+		float RightDragN = 0.0f;
+		float PilotDragN = 0.0f;
+		float LineDragN = 0.0f;
+		float DragN = 0.0f;
+		float ThrustN = 0.0f;
+		float PilotDragArea = 0.5f;
+		float CDPilot = 0.5f;
+		float LineDragArea = 0.06f;
+		float CDLine = 1.0f;
+		float LineMassKg = 1.5f;
+		float TotalMassKg = 0.0f;
+		float LiftAccel = 0.0f;
+		float DragAccel = 0.0f;
+		float ThrustAccel = 0.0f;
+		float GravityAccel = GRAVITY_CM_S2;
+		float TotalEffectiveBrake = 0.0f;
+
+		// Pendulum / pitch (UpdatePendulumAndPitch)
+		float LineLength = LINE_LENGTH_CM;
+		float PendulumOmega = 0.0f;
+		float PendulumOmegaSq = 0.0f;
+		float PendulumDriveAccel = 0.0f;
+		float PendulumBrakeAccel = 0.0f;
+		float DampingRatio = 0.0f;
+		float PitchOmega = 0.0f;
+		float SpeedError = 0.0f;
+		float CurrentSpeedMs = 0.0f;
+		float PitchTarget = 0.0f;
+		float MaxHangPointOffsetCm = 0.0f;
+		float HangPointTiltDeg = 0.0f;
+
+		// Yaw / roll (UpdateYawRollDynamics)
+		float YawRate = 0.0f;
+		float TargetBank = 0.0f;
+		float TargetRoll = 0.0f;
+		float WingInertiaRoll = 0.0f;
+		float WingInertiaYaw = 0.0f;
+		float PropTorqueNM = 0.0f;
+		float WeightShiftCGOffset = 0.0f;
+		float WeightShiftRollMoment = 0.0f;
+		float FlightEffectiveMassKg = 0.0f;
+
+		// Movement (ApplyFlightForces)
+		FVector NewVel = FVector::ZeroVector;
+	};
+
+	// === FLIGHT PHYSICS SPLIT HELPERS (all operate on FFlightContext) ===
+	// Each helper corresponds to a contiguous section of the original UpdateFlight.
+	// Order of calls in UpdateFlight MUST match the original section order to
+	// preserve data flow (later sections read values produced by earlier ones).
+	void UpdateFlightEnvironment(FFlightContext& C);
+	void UpdateAerodynamicCoefficients(FFlightContext& C);
+	void UpdateCollapseDetection(FFlightContext& C);
+	void UpdateLineTensionAndStretch(FFlightContext& C);
+	void UpdateFlightForces(FFlightContext& C);
+	void UpdatePendulumAndPitch(FFlightContext& C);
+	void UpdateYawRollDynamics(FFlightContext& C);
+	void UpdatePilotOrientation(FFlightContext& C);
+	void ApplyFlightForces(FFlightContext& C);
+
+	// ============================================================
+	// FClothContext — per-frame shared state for SimulateCloth helpers
+	// Holds locals produced by one section and consumed by later sections.
+	// All values are reset at the start of SimulateCloth.
+	// ============================================================
+	struct FClothContext
+	{
+		// Inputs
+		float DeltaTime = 0.0f;
+		float EffectiveDamping = 0.0f;
+		bool bSkipCanopyPhysics = false;
+		FVector CachedActorLoc = FVector::ZeroVector;
+
+		// Kiting geometry (UpdateKitingGeometry)
+		FVector PilotVel = FVector::ZeroVector;
+		FVector PilotFwdDir = FVector::ForwardVector;
+		FVector PilotRight = FVector::RightVector;
+		float SpeedMs = 0.0f;
+		float WindMs = 0.0f;
+		FVector ShiftedWindDir = FVector::ZeroVector;
+		FVector WindVelVec = FVector::ZeroVector;
+		FVector ApparentWindVec = FVector::ZeroVector;
+		float ApparentWindMs = 0.0f;
+		FVector CarabMid = FVector::ZeroVector;
+		FVector WingPos = FVector::ZeroVector;
+		FVector ToWingFromCarab = FVector::ZeroVector;
+		FVector HorizToWing = FVector::ZeroVector;
+		float HorizDist = 0.0f;
+		float HeightAboveCarab = 0.0f;
+		float DistFromCarab = 0.0f;
+		float GroundZ = 0.0f;
+		float HeightAboveGround = 0.0f;
+		float PendAngle = 0.0f;
+
+		// Mass (UpdateKitingGeometry)
+		float Rho = AIR_DENSITY_SEA_LEVEL;
+		float WingMassKg = 0.0f;
+		float ApparentMassKg = 0.0f;
+		float EffectiveMassKg = 0.0f;
+		float WingWeightN = 0.0f;
+
+		// Forces (UpdateKitingForces)
+		FVector ALinesPullForce = FVector::ZeroVector;
+		FVector WindCatchForce = FVector::ZeroVector;
+		FVector CellLiftForce = FVector::ZeroVector;
+		FVector GravityForce = FVector::ZeroVector;
+		FVector PendulumForce = FVector::ZeroVector;
+		FVector WindDragForce = FVector::ZeroVector;
+		FVector BrakeDampForce = FVector::ZeroVector;
+		FVector AirDamping = FVector::ZeroVector;
+		FVector TurbulenceForce = FVector::ZeroVector;
+		FVector InertialLagForce = FVector::ZeroVector;
+		FVector YawedFlightForce = FVector::ZeroVector;
+		FVector BrakeSurgeForce = FVector::ZeroVector;
+		float ALinesPullN = 0.0f;
+		float WindCatchN = 0.0f;
+		float TotalLiftN = 0.0f;
+		float TotalDragN = 0.0f;
+		float TotalBrake = 0.0f;
+
+		// Yaw dynamics (UpdateKitingYawDynamics)
+		float KiteYawAccel = 0.0f;
+		FVector ToNewPos = FVector::ZeroVector;
+	};
+
+	// === CLOTH SIM SPLIT HELPERS (all operate on FClothContext) ===
+	void SimulateClothParticles(FClothContext& C);
+	void SimulateClothConstraints(FClothContext& C);
+	void UpdateConnectedState(FClothContext& C);
+	void UpdateKitingGeometry(FClothContext& C);
+	void UpdateKitingForces(FClothContext& C);
+	void UpdateKitingYawDynamics(FClothContext& C);
+	void UpdateKitingIntegration(FClothContext& C);
+	void UpdateKitingCanopy(FClothContext& C);
+	void UpdateKitingStateTransitions(FClothContext& C);
+	void UpdateKitingRotation(FClothContext& C);
 };

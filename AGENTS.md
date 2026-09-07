@@ -1,5 +1,100 @@
 # ParamotorSim Project Notes
 
+## Session 11 — ParamotorCharacter::Tick Refactor
+
+### ParamotorCharacter.cpp Tick Split
+- `Tick` was 616 lines (lines 330-944) — the largest function in the file
+- Split into a dispatcher (170 lines) + 9 helper methods:
+  1. `UpdateFallState` — ragdoll/get-up logic, returns true to early-out
+  2. `UpdateThrustGroundPhysics` — thrust on ground (walking boost, standing brace, wind knockdown)
+  3. `UpdateThrustAirPhysics` — thrust in air (falling, not wing flight)
+  4. `UpdatePostureLean` — lean from thrust torque balance, mesh quaternion rotation
+  5. `UpdateAnimationState` — anim speed, play rate, clip selection
+  6. `UpdateFootstepAudio` — step interval timing
+  7. `UpdateWindAudio` — wind volume from speed
+  8. `UpdateTripRisk` — physical moment balance trip risk accumulation
+  9. `UpdateRotationHandling` — final rotation, camera roll, mesh transform
+- Air time tracking and landed-after-air-thrust trip check kept in dispatcher (they need early access to `bOnGround`, `bThrustActive`, `IsWingFlying`)
+- File went from 1420 to 1334 lines
+- Pure structural refactor — all physics formulas and execution order preserved
+- Build verified: Succeeded
+
+## Session 10 — Critical Bug Fix + WingClothSim Refactor
+
+### CRITICAL Bug Fix: ApplyWingModel Switch Fall-Through
+- `ParamotorPlayerController.cpp`: Every `case 0`-`case 5` and `default` in `ApplyWingModel` had `break;` swallowed by `//` comments (e.g., `// Default trim AoA\t\tbreak;`). This caused switch fall-through — selecting any wing model applied the next model's values too, ending with case 6 (MacPara Charger) values for overlapping fields. Fixed by moving all `break;` statements to their own lines.
+
+### WingClothSim.cpp Refactor — SimulateCloth Split
+- `SimulateCloth` was 858 lines (lines 355-1213) — the largest function in the project
+- Split into a short dispatcher + 10 helper methods using `FClothContext` struct (same pattern as `WingFlightPhysics.cpp` refactor)
+- Helpers (in call order):
+  1. `SimulateClothParticles` — Verlet integration + ground collision + grabbed particles
+  2. `SimulateClothConstraints` — Constraint solving loop
+  3. `UpdateConnectedState` — Connected state cell pressure + position dynamics + Connected→Inflating transition
+  4. `UpdateKitingGeometry` — Pilot frame, apparent wind, geometry, line tension, cell pressure, A-line fade, wing mass
+  5. `UpdateKitingForces` — All 9 forces (A-line pull, wind catch, cell lift, gravity, pendulum, wind drag, brake damping, air damping, turbulence) + inertial lag + brake surge
+  6. `UpdateKitingYawDynamics` — Per-side stall dynamics, yaw from drag differential + weathervane, yawed flight force
+  7. `UpdateKitingIntegration` — Force integration, velocity damping, line constraint, ground collision, line tension pulls pilot
+  8. `UpdateKitingCanopy` — Pitch from pendulum, ApplyInflatedShape, spring-coupled Verlet dynamics for canopy
+  9. `UpdateKitingStateTransitions` — Inflation progress, state transitions (Inflating→Inflated, Inflated→Inflating, Inflated→Connected)
+  10. `UpdateKitingRotation` — Wing rotation (yaw/pitch/roll), debug log
+- `FClothContext` struct added to `WingActor.h` with fields for all cross-helper data
+- File grew from 1238 to 1320 lines (helper headers + dispatcher structure overhead)
+- Pure structural refactor — all physics formulas, constants, and execution order preserved
+- Build verified: Succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+
+## Code Cleanup (Session 9 — Dead Code + Null Init + HUD Wind Fix)
+
+### Dead Code Removed
+- `ParamotorActor.h`: Removed `WingTargetPos` and `bWingConnected` (never read/written, `UpdateWingTarget` is a no-op)
+- `WingActor.h`: Removed `GetWingName()` and `IsGroundRunActive()` (never called)
+- `AirfoilPolar.h`: Removed 4 unused inline functions: `EffectiveCamberPercent`, `SchrenkDistribution`, `LocalCL`, `RollMomentFromBrakeAsym` (declared but never called from any .cpp)
+
+### HUD Wind Compass Fix
+- `UW_FlightHUD.h`: Removed static `WindDirection = 45.0f` and `WindSpeed = 8.0f` member variables (were never updated, showed stale defaults)
+- `UW_FlightHUD.cpp`: Wind compass now reads live wind speed and direction from `WingActor->GetCurrentWindSpeedMs()` and `WingActor->GetWindDirection()`, falling back to `UParamotorGameInstance->WindSpeed`
+- Wind direction vector converted to compass heading via `atan2(Y, X) * RAD_TO_DEG`
+
+### Null Initialization (Safety/Consistency)
+Added `= nullptr` in-header initializers to all UPROPERTY pointer members that were missing them:
+- `ParamotorActor.h`: `Root`, `InteractionSphere`, `PromptWidget`
+- `WingActor.h`: `Root`, `CanopyMesh`, `BagMesh`, `LineMesh`
+- `ParamotorGameMode.h`: `BirdsAudio`, `OceanAudio`
+- `ParamotorPlayerController.h`: `PauseMenuInstance`, `FlightHUDInstance`, `SpawnedParamotorActor`, `bIsPaused`
+- `UW_FlightHUD.h`: All 28 widget pointers
+- `UW_InteractPrompt.h`: `PromptText`
+- `UW_MainMenu.h`: `GameInstanceRef`, 5 text labels, 5 sliders
+- `UW_PauseMenu.h`: All 22 widget/button/border pointers, `bSigWingsExpanded`
+- `WindsockActor.h`: `PoleMesh`, `SockMesh`, `SmoothedYaw`, `SmoothedInflation`
+- `ParamotorCharacter.h`: 10 `TObjectPtr` members (Camera, SpringArm, HeadMesh, OutfitMesh, ShoesMesh, WalkIdleAnim, WalkAnimAsset, JogAnimAsset, CurrentAnim)
+
+### Build Verification
+- Build succeeded after all changes (UE5 5.8, MSVC 14.44, Win64 Development)
+- Only pre-existing `UW_PauseMenu.cpp` `UButton::WidgetStyle` deprecation warnings remain
+
+## Code Refactor (Session 8 — WingFlightPhysics.cpp Split)
+
+### UpdateFlight Split into 9 Helpers
+- `UpdateFlight` was ~1068 lines (lines 24-1092 of `WingFlightPhysics.cpp`), the largest single function in the project
+- Split into a slim dispatcher + 9 helper methods, each handling one contiguous section of the original function
+- File reduced from 1398 to 1009 lines
+- Helpers called in exact original order to preserve data flow (later sections read values from earlier ones)
+- Added `FFlightContext` nested struct in `WingActor.h` to hold per-frame shared locals (Pawn, Char, Vel, ApparentWind, AoA, CL/CD, forces, accelerations, etc.)
+- Helpers:
+  1. `UpdateFlightEnvironment` — wind, altitude, air density, wind gradient, turbulence, cell pressure, thermals, turbulence AoA, brake lag
+  2. `UpdateAerodynamicCoefficients` — brake-to-AoA, polar lookup (CL/CD), ground effect
+  3. `UpdateCollapseDetection` — asymmetric/frontal collapse triggers, collapse amounts, parachutal stall
+  4. `UpdateLineTensionAndStretch` — per-side lift forces, cell pressure coupling, A/B/C/D line tension, line stretch
+  5. `UpdateFlightForces` — per-side drag, thrust, glide ratio, total mass, trim speed, roll/yaw moments, accelerations
+  6. `UpdatePendulumAndPitch` — trim speed stability, pendulum physics, pilot pitch/seat transition
+  7. `UpdateYawRollDynamics` — weight shift, wing inertia, prop torque, yaw/roll integration, spiral dive, Dutch roll
+  8. `UpdatePilotOrientation` — wing surge/pitch oscillation, roll pendulum, pilot rotation, velocity rotation, stall log
+  9. `ApplyFlightForces` — banked turn centripetal, thrust/drag/lift/gravity forces, NewVel integration, safety caps, landing, move pilot, wing position, flight log
+- No physics formulas changed — pure structural refactor
+- Pre-existing `WingFlightPhysics_backup.cpp` moved out of Source directory (was causing LNK2005 duplicate symbol errors)
+- Backups stored at project root: `WingFlightPhysics_backup.cpp`, `WingFlightPhysics_cpp.bak`
+- Build verified: compiles and links successfully
+
 ## Code Refactor (2026-09-06 Session 7 — Code Review + Cleanup)
 
 ### Critical Bug Fixes

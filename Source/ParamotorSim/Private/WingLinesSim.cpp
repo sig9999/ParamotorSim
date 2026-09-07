@@ -415,7 +415,7 @@ LineParticles[Att.LineParticleIdx].OldPos = LineParticles[Att.LineParticleIdx].P
 if (bRisersConnected)	{
 		FTransform ActorTransform = CachedActorTransform;
 FVector WingWorldPos = CachedActorLoc;
-auto UpdateCarabinerAndRiser = [&](int32 CarabIdx, int32 RiserIdx, FVector CarabWorldPos)		{
+auto UpdateCarabinerAndRiser = [&](int32 CarabIdx, int32 RiserIdx, FVector CarabWorldPos, FVector& SmoothedRiserDir)		{
 			if (CarabIdx < 0 || CarabIdx >= LineParticles.Num()) return;
 // Carabiner at the harness
 FVector LocalPos = ActorTransform.InverseTransformPosition(CarabWorldPos);
@@ -427,23 +427,30 @@ LineParticles[CarabIdx].bPinned = true;
 // do NOT always point straight up. When the wing is on the ground behind
 // the pilot, the riser points backward toward the wing. When flying,
 // the riser points up toward the wing overhead.
+// The direction is smoothed to prevent whipping from wing position jitter.
 if (RiserIdx >= 0 && RiserIdx < LineParticles.Num())			{
 				FVector ToWing = WingWorldPos - CarabWorldPos;
 				float DistToWing = ToWing.Size();
-				FVector RiserDir;
+				FVector TargetDir;
 				if (DistToWing > 1.0f)
-					RiserDir = ToWing / DistToWing;
+					TargetDir = ToWing / DistToWing;
 				else
-					RiserDir = FVector::UpVector;
-				FVector RiserWorldPos = CarabWorldPos + RiserDir * RISER_LENGTH_CM;
+					TargetDir = FVector::UpVector;
+				// Smooth the riser direction — stiff strap doesn't whip instantly.
+				// VInterpTo at rate 8.0 gives ~0.12s response time (stiff but not instant).
+				SmoothedRiserDir = FMath::VInterpTo(SmoothedRiserDir, TargetDir, DeltaTime, 8.0f);
+				if (SmoothedRiserDir.SizeSquared() < 0.01f)
+					SmoothedRiserDir = FVector::UpVector;
+				SmoothedRiserDir.Normalize();
+				FVector RiserWorldPos = CarabWorldPos + SmoothedRiserDir * RISER_LENGTH_CM;
 				FVector RiserLocalPos = ActorTransform.InverseTransformPosition(RiserWorldPos);
 				LineParticles[RiserIdx].Pos = RiserLocalPos;
 				LineParticles[RiserIdx].OldPos = RiserLocalPos;
 				LineParticles[RiserIdx].bPinned = true;
 			}
 };
-UpdateCarabinerAndRiser(LeftCarabinerIdx, LeftRiserIdx, LeftCarabinerPos);
-UpdateCarabinerAndRiser(RightCarabinerIdx, RightRiserIdx, RightCarabinerPos);
+UpdateCarabinerAndRiser(LeftCarabinerIdx, LeftRiserIdx, LeftCarabinerPos, LeftRiserDir);
+UpdateCarabinerAndRiser(RightCarabinerIdx, RightRiserIdx, RightCarabinerPos, RightRiserDir);
 
 // Debug: log riser world positions
 RiserLogTimer += DeltaTime;

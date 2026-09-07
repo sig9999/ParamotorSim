@@ -42,35 +42,35 @@ protected:
 	UTextBlock* CreateSlider(UCanvasPanel* RootCanvas, const TCHAR* Name, float Min, float Max, float Value, float YPos);
 
 	UPROPERTY()
-	class UParamotorGameInstance* GameInstanceRef;
+	class UParamotorGameInstance* GameInstanceRef = nullptr;
 
 	UPROPERTY()
-	UTextBlock* WindLabel;
+	UTextBlock* WindLabel = nullptr;
 
 	UPROPERTY()
-	UTextBlock* GustsLabel;
+	UTextBlock* GustsLabel = nullptr;
 
 	UPROPERTY()
-	UTextBlock* CloudLabel;
+	UTextBlock* CloudLabel = nullptr;
 
 	UPROPERTY()
-	UTextBlock* TempLabel;
+	UTextBlock* TempLabel = nullptr;
 
 	UPROPERTY()
-	UTextBlock* TimeLabel;
+	UTextBlock* TimeLabel = nullptr;
 
 	UPROPERTY()
-	USlider* WindSlider;
+	USlider* WindSlider = nullptr;
 
 	UPROPERTY()
-	USlider* GustsSlider;
+	USlider* GustsSlider = nullptr;
 
 	UPROPERTY()
-	USlider* CloudSlider;
+	USlider* CloudSlider = nullptr;
 
 	UPROPERTY()
-	USlider* TempSlider;
+	USlider* TempSlider = nullptr;
 
 	UPROPERTY()
-	USlider* TimeSlider;
+	USlider* TimeSlider = nullptr;
 };

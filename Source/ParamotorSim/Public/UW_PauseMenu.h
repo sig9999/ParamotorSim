@@ -99,65 +99,65 @@ protected:
 
 	// Tab content panels
 	UPROPERTY()
-	UVerticalBox* MainTabContent;
+	UVerticalBox* MainTabContent = nullptr;
 
 	UPROPERTY()
-	UVerticalBox* SpawnTabContent;
+	UVerticalBox* SpawnTabContent = nullptr;
 
 	UPROPERTY()
-	UVerticalBox* OptionsTabContent;
+	UVerticalBox* OptionsTabContent = nullptr;
 
 	// Tab buttons (for highlighting)
 	UPROPERTY()
-	UButton* TabMainBtn;
+	UButton* TabMainBtn = nullptr;
 
 	UPROPERTY()
-	UButton* TabSpawnBtn;
+	UButton* TabSpawnBtn = nullptr;
 
 	UPROPERTY()
-	UButton* TabOptionsBtn;
+	UButton* TabOptionsBtn = nullptr;
 
 	// Tab button text (for color changes)
 	UPROPERTY()
-	UTextBlock* TabMainTxt;
+	UTextBlock* TabMainTxt = nullptr;
 
 	UPROPERTY()
-	UTextBlock* TabSpawnTxt;
+	UTextBlock* TabSpawnTxt = nullptr;
 
 	UPROPERTY()
-	UTextBlock* TabOptionsTxt;
+	UTextBlock* TabOptionsTxt = nullptr;
 
 	// Tab button borders (for accent bar)
 	UPROPERTY()
-	UBorder* TabMainAccent;
+	UBorder* TabMainAccent = nullptr;
 
 	UPROPERTY()
-	UBorder* TabSpawnAccent;
+	UBorder* TabSpawnAccent = nullptr;
 
 	UPROPERTY()
-	UBorder* TabOptionsAccent;
+	UBorder* TabOptionsAccent = nullptr;
 
 	// Graphics widgets for live updates
 	UPROPERTY()
-	UTextBlock* ResolutionScaleLabel;
+	UTextBlock* ResolutionScaleLabel = nullptr;
 
 	UPROPERTY()
-	UTextBlock* CurrentQualityLabel;
+	UTextBlock* CurrentQualityLabel = nullptr;
 
 	UPROPERTY()
-	UCheckBox* VSyncCheckBox;
+	UCheckBox* VSyncCheckBox = nullptr;
 
 	UPROPERTY()
-	UCheckBox* ShadowsCheckBox;
+	UCheckBox* ShadowsCheckBox = nullptr;
 
 	// SIG brand collapsible section
 	UPROPERTY()
-	UVerticalBox* SigWingContainer;
+	UVerticalBox* SigWingContainer = nullptr;
 
 	UPROPERTY()
-	UTextBlock* SigToggleIndicator;
+	UTextBlock* SigToggleIndicator = nullptr;
 
-	bool bSigWingsExpanded;
+	bool bSigWingsExpanded = false;
 
 	// Helper to style a tab button as active/inactive
 	void SetTabActive(UButton* ActiveBtn, UButton* InactiveBtn1, UButton* InactiveBtn2);
@@ -165,11 +165,11 @@ protected:
 	// Helper to highlight a quality button
 	void HighlightQualityButton(UButton* ActiveBtn);
 	UPROPERTY()
-	UButton* QualityLowBtn;
+	UButton* QualityLowBtn = nullptr;
 	UPROPERTY()
-	UButton* QualityMedBtn;
+	UButton* QualityMedBtn = nullptr;
 	UPROPERTY()
-	UButton* QualityHighBtn;
+	UButton* QualityHighBtn = nullptr;
 	UPROPERTY()
-	UButton* QualityEpicBtn;
+	UButton* QualityEpicBtn = nullptr;
 };
