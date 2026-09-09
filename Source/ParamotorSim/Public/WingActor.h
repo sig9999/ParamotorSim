@@ -4,6 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "Components/StaticMeshComponent.h"
 #include "ProceduralMeshComponent.h"
+#include "AtmosphereModel.h"
 #include "WingActor.generated.h"
 
 // ============================================================
@@ -15,8 +16,6 @@ static constexpr float GRAVITY_MS2 = 9.81f;           // m/s²
 static constexpr float GRAVITY_CM_S2 = 981.0f;         // cm/s² (Unreal)
 static constexpr float AIR_DENSITY_SEA_LEVEL = 1.225f; // kg/m³
 static constexpr float MPH_PER_MS = 2.23694f;
-static constexpr float KMH_PER_MS = 3.6f;
-static constexpr float KNOTS_PER_MS = 1.94384f;
 static constexpr float PI_DIV_180 = 0.01745329251994329576f; // PI/180 as float
 static constexpr float RAD_TO_DEG = 180.0f / PI;       // Radians to degrees
 static constexpr float PERCENT_FACTOR = 100.0f;       // Fraction to percent (0-1 → 0-100)
@@ -33,21 +32,11 @@ inline float AirDensityAtAltitude(float AltitudeM)
 static constexpr float LINE_LENGTH_CM = 750.0f;        // 7.5m avg carabiner-to-canopy (real Charger 25M)
 static constexpr float RISER_LENGTH_CM = 52.5f;        // 0.525m riser (real Charger neutral position)
 static constexpr float CARABINER_SPACING_CM = 42.0f;   // 0.42m between carabiners
-static constexpr float BRAKE_SLACK_CM = 7.0f;          // 7cm slack before brake engages
-static constexpr float MAX_KITE_OFFSET_CM = 350.0f;    // Max kiting drift before collapse
-static constexpr float MAX_KITE_VELOCITY_CM_S = 500.0f; // Max kite drift speed
 
 // Inflation constants
-static constexpr float INFLATION_TARGET_HEIGHT_CM = 200.0f; // Fully inflated height
-static constexpr float INFLATION_OVERSHOOT_BASE_CM = 40.0f; // Base overshoot past zenith
-static constexpr float TAKEOFF_HEIGHT_THRESHOLD_CM = 50.0f; // Min skip height for takeoff
 static constexpr float MIN_TAKEOFF_AIRSPEED_MS = 4.0f;      // Min airspeed for takeoff (was 3.0)
 
 // Aerodynamic defaults
-static constexpr float DEFAULT_TRIM_AOA_DEG = 8.0f;    // Base AoA at trim
-static constexpr float DEFAULT_STALL_AOA_DEG = 15.0f;  // Stall angle
-static constexpr float OSWALD_EFFICIENCY = 0.90f;       // Modern paraglider
-static constexpr float MAX_THRUST_N = 736.0f;           // Full throttle thrust (~75 kgf)
 static constexpr float REDLINE_RPM = 7800.0f;           // Moster 185 redline (was 9000)
 static constexpr float IDLE_RPM = 2500.0f;              // Moster 185 idle
 static constexpr float PROP_REDUCTION_RATIO = 2.58f;    // Moster 185 reduction ratio
@@ -62,14 +51,11 @@ static constexpr float PROP_BLADE_ELEMENTS = 20;        // Number of blade eleme
 
 // Pendulum constants
 static constexpr float PENDULUM_LENGTH_CM = 750.0f;    // 7.5m effective pendulum (real Charger 25M)
-static constexpr float PENDULUM_PERIOD_S = 5.5f;       // ~5.5s for 7.5m pendulum
 
 class USceneComponent;
-class UStaticMeshComponent;
-class UProceduralMeshComponent;
 class UMaterialInterface;
-class UMaterialInstanceDynamic;
 class AParamotorActor;
+class UCharacterMovementComponent;
 
 // ============================================================
 // Wing states
@@ -108,19 +94,6 @@ struct FClothConstraint
 	int32 B;
 	float RestLength;
 	float Stiffness;
-};
-
-// ============================================================
-// Line levels (A, B, C, D, Brake)
-// ============================================================
-enum class ELineLevel : uint8
-{
-	A = 0,
-	B = 1,
-	C = 2,
-	D = 3,
-	E = 4,        // MacPara Charger E lines (behind D, near trailing edge)
-	Brake = 5,
 };
 
 // ============================================================
@@ -163,6 +136,22 @@ struct FWingModel
 };
 
 // ============================================================
+// Thermal — convective updraft column
+// ============================================================
+struct FThermal
+{
+	FVector Center;         // Ground-level center position (world space, cm)
+	float Radius;           // Thermal core radius (cm) — strongest at center, fades to edge
+	float Strength;         // Peak updraft at core (m/s)
+	float BaseAltitude;     // Bottom of thermal (m above ground, usually 0)
+	float TopAltitude;      // Top of thermal (m above ground — cloudbase/inversion)
+	float Lifetime;         // Remaining lifetime (s) — thermals decay
+	float MaxLifetime;      // Initial lifetime (s)
+	float DriftVel;         // Horizontal drift speed (cm/s) — thermals drift with wind
+	bool bActive;           // Whether this thermal is currently generating lift
+};
+
+// ============================================================
 // AWingActor — Realistic paramaglider wing with cells, ribs,
 // proper line cascade, and real riser geometry
 // ============================================================
@@ -182,7 +171,7 @@ public:
 	FWingModel WingModel;
 
 	// Get wing info for HUD
-	float GetTakeoffChance() const;  // 0-100% based on weight, wind, airspeed
+	virtual float GetTakeoffChance() const;  // 0-100% based on weight, wind, airspeed
 
 	// === TRIMMER PUBLIC API ===
 	float GetTrimmerPosition() const { return TrimmerPosition; }
@@ -191,14 +180,14 @@ public:
 	FString GetTrimmerLabel() const;
 
 	// === Public API ===
-	bool UnpackFromBag();
-	bool GrabNearestEdge(FVector PlayerHandPos);
-	void ReleaseEdge();
-	void UpdateGrabPosition(FVector NewHandPos);
+	virtual bool UnpackFromBag();
+	virtual bool GrabNearestEdge(FVector PlayerHandPos);
+	virtual void ReleaseEdge();
+	virtual void UpdateGrabPosition(FVector NewHandPos);
 	bool IsGrabbing() const { return GrabbedParticleIndex >= 0; }
 
-	void ConnectRisers(AParamotorActor* Paramotor, FVector LeftCarabiner, FVector RightCarabiner);
-	void DisconnectRisers();
+	virtual void ConnectRisers(AParamotorActor* Paramotor, FVector LeftCarabiner, FVector RightCarabiner);
+	virtual void DisconnectRisers();
 	void UpdateCarabinerPositions(FVector LeftCarabiner, FVector RightCarabiner);
 	bool IsConnected() const { return bRisersConnected; }
 
@@ -210,12 +199,20 @@ public:
 	FVector GetWindDirection() const { return WindDirection; }
 	float GetCurrentWindSpeedMs() const { return CurrentWindSpeed; }  // Live wind including gusts (m/s)
 	float GetWindTurbulence() const { return WindTurbulence; }        // Current turbulence level
+
+	// Unified wind access — single source of truth for all consumers
+	// Returns wind direction with turbulence shift applied (normalized, world space)
+	FVector GetShiftedWindDirection() const;
+	// Returns full wind vector in cm/s (Unreal units), including turbulence shift + gusts
+	FVector GetWindVector() const;
+	// Returns wind compass heading in degrees (0=N=+X, 90=E=+Y), with turbulence shift
+	float GetWindHeadingDeg() const;
 	float GetWingLoading() const;  // kg/m²
 	bool IsOverloaded() const { return PilotWeight > WingModel.MaxTakeoffWeight; }
 
 	// Inflation — hold R to lift A-lines
-	void LiftALines();
-	void ReleaseALines();
+	virtual void LiftALines();
+	virtual void ReleaseALines();
 	bool IsInflating() const { return WingState == EWingState::Inflating; }
 	bool IsInflated() const { return WingState == EWingState::Inflated; }
 	bool IsFlying() const { return WingState == EWingState::Flying; }
@@ -231,7 +228,6 @@ public:
 
 	// Flight — set by controller each frame
 	void SetThrottle(float T) { ThrottleAmount = FMath::Clamp(T, 0.0f, 1.0f); }
-	void PumpBrakes();  // Quick brake pump to help open canopy
 	float GetAirspeed() const { return Airspeed; }
 	float GetClimbRate() const { return ClimbRate; }
 	float GetPendulumAngle() const { return PendulumAngle; }
@@ -246,7 +242,7 @@ public:
 	float GetDebugWeightSupport() const { return DebugWeightSupport; }
 
 	// Force takeoff for debugging
-	void ForceTakeoff();
+	virtual void ForceTakeoff();
 
 	// Brake input — Q = left, E = right
 	void SetLeftBrake(float Amount);
@@ -256,8 +252,8 @@ public:
 	float GetRightBrakeAmount() const { return RightBrakeAmount; }
 
 	// Get brake handle world positions (for character arm IK)
-	FVector GetLeftBrakeHandleWorldPos() const;
-	FVector GetRightBrakeHandleWorldPos() const;
+	virtual FVector GetLeftBrakeHandleWorldPos() const;
+	virtual FVector GetRightBrakeHandleWorldPos() const;
 
 	bool IsInBag() const { return WingState == EWingState::InBag; }
 	bool IsCrinkled() const { return WingState == EWingState::Crinkled; }
@@ -270,6 +266,51 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wing")
 	UProceduralMeshComponent* CanopyMesh = nullptr;
+
+	// Real riser mesh (loaded from SM_Risers_Both.uasset, exported from charger_full.blend)
+	UPROPERTY()
+	UStaticMeshComponent* RiserMeshComponent = nullptr;
+
+	// Cached riser mesh bounds (computed once at init from actual mesh geometry)
+	FVector RiserMeshBoundsCenter = FVector::ZeroVector;
+	FVector RiserMeshBoundsExtent = FVector::ZeroVector;
+	bool bRiserBoundsCached = false;
+
+	// Test wing state: 0=deflated, 1=inflated (smooth transition)
+	float TestWingInflation = 0.0f;
+	// Whether the procedural mesh sections have been created (avoid recreating every frame)
+	bool bTestWingCanopyCreated = false;
+	bool bTestWingLinesCreated = false;
+	// Cached line mesh vertex count (for UpdateMeshSection)
+	int32 TestWingLineMeshVertCount = 0;
+	// Test wing line particles (simplified Verlet for real lines)
+	struct FTestLineParticle { FVector Pos; FVector OldPos; bool bPinned; };
+	TArray<FTestLineParticle> TestLineParticles;
+	// Test wing line segments (pairs of particle indices)
+	TArray<int32> TestLineSegments;
+	// Test wing line rest lengths
+	TArray<float> TestLineRestLengths;
+	// Test wing line colors
+	TArray<FLinearColor> TestLineColors;
+
+	// Pre-computed canopy mesh data (created once, reused every frame — INSTANCE members, not static)
+	TArray<FVector> TWC_Verts;
+	TArray<FVector> TWC_Normals;
+	TArray<FVector2D> TWC_UVs;
+	TArray<FProcMeshTangent> TWC_Tangents;
+	TArray<TArray<int32>> TWC_MatTris;
+	TArray<FLinearColor> TWC_MatColors;
+
+	// Pre-computed line mesh data (created once, reused every frame)
+	TArray<int32> TWL_Tris;
+	TArray<FLinearColor> TWL_Colors;
+	TArray<FProcMeshTangent> TWL_Tangents;
+	TArray<FVector2D> TWL_UVs;
+
+	// Pre-computed line-to-canopy attachments (which canopy particle each line top follows)
+	TArray<int32> TWL_TopCanopyIdx;
+	TArray<bool> TWL_IsMain;
+	TArray<bool> TWL_IsLeft;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wing")
 	UStaticMeshComponent* BagMesh = nullptr;
@@ -287,100 +328,10 @@ protected:
 	// Inflation state
 	bool bLiftingALines = false;
 	float InflationProgress = 0.0f;
-	float InflationHeight = 0.0f;  // Current height of canopy during inflation (cm)
-	float CellFillFactor = 0.0f;   // 0=empty cells, 1=fully inflated (ram-air pressure)
-	float ALineFadeFactor = 0.0f;  // Fades A-line pull after inflation (1=full pull, 0=none)
 
-	// === REAL CELL PRESSURE MODEL ===
-	// A real paraglider has 30+ cells that fill with air through the open
-	// leading edge. Each cell is a volume bounded by ribs (top and bottom
-	// surfaces). Air enters at the leading edge from ram-air pressure.
-	//
-	// The internal pressure gives the canopy its airfoil shape.
-	// Without pressure, the canopy is just fabric — it collapses.
-	//
-	// Physics:
-	// - Ram-air pressure: P_ram = 0.5 × ρ × V² (dynamic pressure at leading edge)
-	// - Cell fill rate: proportional to apparent wind speed
-	// - Porosity: fabric leaks air slowly (cells lose pressure over time)
-	// - Each cell has independent pressure (one cell can collapse while others fly)
-	// - Pressure determines cell shape (inflated = airfoil, deflated = flat fabric)
-	// - Lift comes from the pressurized airfoil shape, not a formula
-	static constexpr int32 NUM_WING_CELLS = 46;  // Real MacPara Charger 25M cell count
-	float CellPressure[NUM_WING_CELLS];          // Internal pressure per cell (Pa, 0=deflated, ~50=fully pressurized at 6m/s)
-	float CellFill[NUM_WING_CELLS];              // Fill state per cell (0=empty, 1=full)
-	float CellLift[NUM_WING_CELLS];              // Lift per cell (Newtons)
-	float CellDrag[NUM_WING_CELLS];              // Drag per cell (Newtons)
-	// Porosity: how fast cells leak air (lower = tighter fabric)
-	float WingPorosity = 0.02f;                  // Air leak rate (per second at full pressure)
-
-	// === KITING DYNAMICS (ground handling) ===
-	// When inflated, the wing is a kite — wind pushes it around.
-	// The pilot must actively manage it with brakes and body positioning.
-	FVector KiteOffset = FVector::ZeroVector;      // Offset from directly above carabiner
-	float KitePitchOvershoot = 0.0f;                // Pitch overshoot during inflation
-	float KiteYawDrift = 0.0f;                      // Yaw drift from wind/turbulence (offset from wind-direction base)
-	float KiteYawVel = 0.0f;                        // Yaw drift velocity
-	float KiteRollSmoothed = 0.0f;                  // Smoothed roll for kiting (emerges from yaw, not direct brake)
-	float PrevSymBrake = 0.0f;                      // Previous frame symmetric brake (for surge detection)
-	float WingGroundYaw = 0.0f;                     // Absolute wing yaw during ground handling (wind-driven, NOT pilot-coupled)
-	float WingGroundYawRate = 0.0f;                 // Yaw rate for inertia (deg/s)
-	FVector WingGroundVel = FVector::ZeroVector;    // Wing velocity during Connected state (cm/s) — for inertia + air resistance
-
-	// === REAL WING PHYSICS BODY ===
-	// The wing is a real physical object with 3D velocity.
-	// It moves from forces: lift from cell pressure, gravity, line tension, wind drag.
-	// It is NOT teleported or Lerped — it integrates forces like a real object.
-	FVector WingVel = FVector::ZeroVector;          // 3D wing velocity (cm/s) — real physics
-	float WingPitchVel = 0.0f;                      // Pitch angular velocity (deg/s)
-	float WingRollVel = 0.0f;                       // Roll angular velocity (deg/s)
-	float WingYawVel = 0.0f;                        // Yaw angular velocity (deg/s)
-
-	// === PER-SIDE KITING STATE (3D wing model) ===
-	// The wing is modeled as two independent halves (left and right).
-	// Each half has its own stall state, lift, and drag.
-	// This creates realistic dynamics:
-	// - Pulling one brake stalls that half → it loses lift, gains drag → wing yaws
-	// - The stalled half takes time to recover (refill with air)
-	// - Switching brakes doesn't instantly reverse — the stalled side must recover first
-	// - Wind affects each half independently (causes wandering)
-	float KiteLeftStall = 0.0f;      // 0=flying, 1=fully stalled (left half)
-	float KiteRightStall = 0.0f;     // 0=flying, 1=fully stalled (right half)
-	float KiteLeftDrag = 0.0f;       // Current drag on left half (Newtons)
-	float KiteRightDrag = 0.0f;      // Current drag on right half (Newtons)
-
-	// === REAL LINE TENSION PER GROUP ===
-	// In a real paraglider, the A/B/C/D lines carry different loads.
-	// The load distribution is determined by the pressure distribution
-	// across the chord. A lines carry the most load (~40%), D lines the least (~10%).
-	// This affects line stretch, wear, and the wing's pitch moment.
-	float LineTensionA = 0.0f;    // Tension in A lines (Newtons)
-	float LineTensionB = 0.0f;    // Tension in B lines (Newtons)
-	float LineTensionC = 0.0f;    // Tension in C lines (Newtons)
-	float LineTensionD = 0.0f;    // Tension in D lines (Newtons)
-	// Overall line tension fraction (0 = slack, 1 = taut at line length)
-	// Drives canopy shape: no tension = parachute billow, full tension = airfoil
-	float LineTensionFraction = 0.0f;
-	// Line stretch from tension (cm) — A lines stretch most
-	float LineStretchA = 0.0f;
-	float LineStretchD = 0.0f;
-	FVector PrevPilotVel = FVector::ZeroVector;     // Previous frame pilot velocity (for inertial lag)
-
-	// === LOG TIMERS (member variables, not statics) ===
-	float KiteLogTimer = 0.0f;
-	float GroundLogTimer = 0.0f;
-	float SustainedAirTime = 0.0f;
+	// === LOG TIMERS ===
 	float FlightLogTimer = 0.0f;
-	float StallLogTimer = 0.0f;
-	float EndLogTimer = 0.0f;  // Instance member (was static — shared between instances)
-	float InflLogTimer = 0.0f;  // Cloth sim inflation log timer
-	float RiserLogTimer = 0.0f;  // Line sim riser log timer
-	float EntryLogTimer = 0.0f;  // Flight physics entry log timer
-	float RisersLogTimer = 0.0f;  // Flight physics risers warning timer
-	float PawnLogTimer = 0.0f;  // Flight physics pawn warning timer
-	float RollDebugTimer = 0.0f;  // Flight physics roll debug timer
 	float CurrentRoll = 0.0f;  // Smoothed roll for flight steering
-	float CanopyOpenness = 0.0f;  // 0=crinkled, 1=fully open. Increased by brake pumping.
 
 	// Flight state
 	bool bIsAirborne = false;          // True once pilot leaves ground
@@ -408,10 +359,8 @@ protected:
 	bool bSeated = false;              // Pilot seated in harness (reduces drag)
 	float SeatTransition = 0.0f;       // 0=standing, 1=fully seated (smooth transition)
 	float HangPointOffset = 0.0f;      // -1.0 = motor leans back, +1.0 = motor leans forward
-	float DragReductionFromSeat = 0.0f; // Drag reduction factor from seated position (0-0.3)
 	bool bAutoSeatPending = false;     // True after takeoff — auto-seat after delay
 	float LaunchTimer = 0.0f;          // Time since takeoff (for launch-to-seat transition)
-	float LaunchAngleOffset = 0.0f;    // Pitch offset during launch (motor torque tilt)
 
 	// === WING INERTIA / APPARENT MASS ===
 	// A paraglider wing doesn't respond instantly to inputs — it has inertia
@@ -436,19 +385,6 @@ protected:
 	float LeftCollapseAmount = 0.0f;   // 0=intact, 1=fully collapsed
 	float RightCollapseAmount = 0.0f;  // 0=intact, 1=fully collapsed
 	float FrontalCollapseAmount = 0.0f; // 0=intact, 1=fully collapsed
-	float CollapseRecoveryTimer = 0.0f; // Time since collapse began (for auto-recovery)
-
-	// === PARACHUTAL STALL ===
-	// Too much brake at low airspeed = wing stops flying, becomes a parachute.
-	// Descent rate increases dramatically, wing feels "mushy".
-	bool bInParachutalStall = false;
-	float ParachutalStallTimer = 0.0f;
-
-	// === DUTCH ROLL ===
-	// Real paragliders have a gentle side-to-side yaw-roll oscillation mode.
-	// The wing yaws slightly, then rolls, then yaws back. This is part of the "feel".
-	float DutchRollYaw = 0.0f;         // Current Dutch roll yaw offset (deg)
-	float DutchRollRoll = 0.0f;        // Current Dutch roll roll offset (deg)
 
 	// === SPIRAL DIVE ===
 	// When banked steeply (>40°), the spiral wants to increase on its own.
@@ -461,7 +397,6 @@ protected:
 	// At trim, the wing flies straight and level with no brake input.
 	// Brakes slow you below trim (more lift, more drag, slower speed).
 	// Speed bar (not yet implemented) would speed you above trim.
-	float TrimSpeedMs = 10.0f;         // Trim speed in m/s (set from wing model)
 
 	// === TRIMMERS ===
 	// Trimmers adjust the rear riser length, changing the angle of attack.
@@ -476,54 +411,49 @@ protected:
 
 	// Get trimmer-adjusted values for physics
 	float GetTrimmerAoAOffset() const;   // Degrees: + = higher AoA (slow), - = lower (fast)
-	float GetTrimmerSpeedFactor() const; // Multiplier for trim speed
-	float GetTrimmerDragFactor() const;  // Multiplier for drag
-	float GetTrimmerCLFactor() const;    // Multiplier for CL0
 	float GetTrimmerPitchOffset() const; // Wing pitch offset (deg): + = hangs back (slow)
 	float GetTrimmerCollapseRisk() const;// Multiplier for collapse risk
-
-	// === TURBULENCE IN FLIGHT ===
-	// Real air has turbulence that bumps the wing around in flight.
-	FVector FlightTurbulence = FVector::ZeroVector; // Random turbulence force
 
 	// Brake state
 	float LeftBrakeAmount = 0.0f;
 	float RightBrakeAmount = 0.0f;
 	float LeftBrakeTarget = 0.0f;
 	float RightBrakeTarget = 0.0f;
-	// Smoothed brake values for visual canopy (prevents popping artifacts)
-	float SmoothedLeftBrake = 0.0f;
-	float SmoothedRightBrake = 0.0f;
-	float SmoothedKillFactor = 0.0f;  // Smoothed kill-the-wing factor
 
 	// Wind direction — captured when risers connect, blows FROM player's facing direction (headwind)
 	FVector WindDirection = FVector(1, 0, 0);  // default +X
 
 	// === DYNAMIC WIND (gusts, turbulence, direction shifts) ===
-	float CurrentWindSpeed = 6.0f;       // m/s, varies with gusts
-	float WindGustPhase = 0.0f;          // Phase for gust oscillation
-	float WindTurbulence = 0.0f;         // Turbulence component (von Kármán filtered)
-	float WindDirShift = 0.0f;           // Direction shift angle (radians)
+	float CurrentWindSpeed = 6.0f;       // m/s, varies with gusts + altitude gradient
+	float WindTurbulence = 0.0f;         // Turbulence component (Dryden filtered)
+	float WindDirShift = 0.0f;           // Direction shift angle (radians, from lateral turbulence)
+	float EkmanShift = 0.0f;             // Direction shift from Ekman spiral (radians, altitude-dependent)
 
-	// === VON KÁRMÁN TURBULENCE MODEL ===
-	// The von Kármán model is the FAA/USAF standard for atmospheric turbulence.
-	// It uses a spectral approach with proper spatial and temporal correlation,
-	// producing realistic turbulence that builds up and decays naturally.
-	// Implementation: Dryden approximation (filtered white noise through
-	// first-order filters shaped to match the von Kármán spectrum).
-	//
+	// === ATMOSPHERIC STATE (computed each frame from weather + altitude) ===
+	EPasquillStability CurrentStability = EPasquillStability::D_Neutral;
+	float BoundaryLayerHeightM = 1000.0f;  // Current BL height (m)
+	float FrictionVelocityUStar = 0.3f;    // u* (m/s), from log law
+	float MoninObukhovLength = 1e6f;        // L (m), from stability
+	float InversionAltitudeM = 2000.0f;     // Inversion layer altitude (m)
+	float DewPointC = 10.0f;                // Dew point (°C), from temp + humidity
+	float SeaBreezeMs = 0.0f;               // Sea breeze contribution (m/s, + = onshore)
+	bool bOverdevelopmentRisk = false;      // True when OD conditions are present
+	EFlyability CurrentFlyability = EFlyability::Good;
+
+	// === DRYDEN TURBULENCE MODEL (MIL-HDBK-1797B) ===
 	// Three axes: longitudinal (along wind), lateral (crosswind), vertical
 	// Each axis has its own filter state and white noise input.
+	// Lateral and vertical use 2nd-order filters (per MIL-HDBK-1797B).
 	float TurbLongState = 0.0f;          // Longitudinal turbulence filter state (m/s)
 	float TurbLatState = 0.0f;           // Lateral turbulence filter state (m/s)
+	float TurbLatState2 = 0.0f;          // Lateral 2nd-order filter state
 	float TurbVertState = 0.0f;          // Vertical turbulence filter state (m/s)
-	float TurbIntensity = 1.5f;          // Turbulence intensity σ (m/s), set from gusts
-	float TurbScaleLength = 200.0f;      // Scale length L (m) — large eddies, typical for low altitude
-
-	// === TAKEOFF SKIP/HOP STATE ===
-	float TakeoffSkipZ = 0.0f;           // Current skip height (cm)
-	// TakeoffSkipVel removed (was unused)
-	int32 TakeoffFootContacts = 0;       // Number of foot touches during takeoff run
+	float TurbVertState2 = 0.0f;         // Vertical 2nd-order filter state
+	float TurbIntensity = 1.5f;          // Turbulence intensity σ (m/s)
+	float TurbScaleLength = 200.0f;      // Scale length L (m) — altitude-dependent (MIL-HDBK)
+	float TurbSigmaU = 1.5f;             // Longitudinal σ (m/s)
+	float TurbSigmaV = 1.0f;             // Lateral σ (m/s)
+	float TurbSigmaW = 1.0f;             // Vertical σ (m/s)
 
 	// Debug ground run diagnostics
 	float DebugGroundAirspeed = 0.0f;
@@ -545,90 +475,32 @@ protected:
 
 	// === Cloth Simulation ===
 	TArray<FClothParticle> Particles;
-	TArray<FVector> TargetPositions;  // Spring-coupled target shape from ApplyInflatedShape
+	TArray<FVector> TargetPositions;  // Spring-coupled target shape for cloth particles
 	TArray<FClothConstraint> Constraints;
-
-	// === Line particles ===
-	struct FLineParticle
-	{
-		FVector Pos;
-		FVector OldPos;
-		bool bPinned;
-		int32 CanopyParticleIdx;
-		float Radius;
-		FLinearColor Color;
-		float Mass;
-		float Damping;
-		int32 Side;      // 0=left, 1=right
-		int32 Level;     // 0=A, 1=B, 2=C, 3=D, 4=Brake
-		int32 RibIdx;    // Which rib this line attaches to
-	};
-	TArray<FLineParticle> LineParticles;
-	TArray<FClothConstraint> LineConstraints;
-
-	// Line attachment: canopy particle → line particle
-	struct FLineAttachment
-	{
-		int32 CanopyParticleIdx;
-		int32 LineParticleIdx;
-		int32 Side;
-		int32 Level;
-		int32 RibIdx;
-	};
-	TArray<FLineAttachment> LineAttachments;
-
-	// Riser and brake handle particle indices
-	int32 LeftRiserIdx = -1;
-	int32 RightRiserIdx = -1;
-	int32 LeftCarabinerIdx = -1;
-	int32 RightCarabinerIdx = -1;
-	int32 LeftBrakeHandleIdx = -1;
-	int32 RightBrakeHandleIdx = -1;
-
-	// Smoothed riser directions — prevents whipping when wing position jitters.
-	// Real risers are stiff webbing straps that don't instantaneously change direction.
-	FVector LeftRiserDir = FVector::UpVector;
-	FVector RightRiserDir = FVector::UpVector;
-
-	// Physics parameters — all in cm/s² (Unreal units)
-	float Gravity = GRAVITY_CM_S2;  // Unified gravity (was 600, inconsistent with flight's 980)
-	float Damping = 0.85f;
-	int32 ConstraintIterations = 8;
-	float GroundFriction = 0.8f;
 
 	// === Materials ===
 	UPROPERTY()
 	UMaterialInterface* CanopyMaterial = nullptr;
-	bool bCanopyMaterialApplied = false;  // Set material once, not per-frame
 	UPROPERTY()
 	UMaterialInterface* LineMaterial = nullptr;  // Cached line mesh material (was per-frame LoadObject)
-	bool bLineMaterialApplied = false;  // Set material once, not per-frame
 	// CanopyMID removed (was unused)
 	// WingLight removed (was unused)
 
 	// === Functions ===
-	void InitCloth();                    // Create particles from procedural wing mesh
-	void InitLines();                    // Create line cascade with real lengths
-	void SimulateCloth(float DeltaTime);
-	void SimulateLines(float DeltaTime);
-	void UpdateInflation(float DeltaTime);
-	void UpdateFlight(float DeltaTime);
-	// Real cell pressure model
-	void UpdateCellPressure(float DeltaTime, float ApparentWindMs, float BrakeLeft, float BrakeRight);
-	float GetTotalCellLiftN() const;
-	float GetTotalCellDragN() const;
-	float GetLeftCellDragN() const;
-	float GetRightCellDragN() const;
-	void UpdateCanopyMesh();
-	void UpdateLineMesh();
-	// SetBagState, SetCrinkledState, CreateRiserLines removed (were unused)
+	// === MacPara Charger (real data from MacParaChargerData.h) ===
+	void InitTestWingCloth();            // Create particles from real MPC vertices
+	void InitTestWingLines();            // Create line particles from real MPCL line endpoints
+	void InitTestWingMeshes();           // Create procedural mesh sections ONCE (performance)
+	void InitCanopyMeshSection();        // Create canopy procedural mesh from MPC data
+	void InitLineMeshSection();          // Create line tube procedural mesh from MPCL data
+	void InitRiserMeshComponent();       // Load and position real riser static mesh
+	void SimulateTestWingCloth(float DeltaTime);  // Verlet cloth on real mesh
+	void SimulateTestWingLines(float DeltaTime);  // Line sag/tension on real lines
+	void UpdateTestWingCanopyMesh();     // Update canopy vertex positions (no recreation)
+	void UpdateTestWingLineMesh();       // Update line vertex positions (no recreation)
+	void SetTestWingDeflated();          // Collapse cloth to ground (deflated state)
+	void SetTestWingLinesDeflated();     // Collapse line particles to pile near canopy
 	void SetSpreadState();
-	void SetInflatedShape();
-	void ApplyInflatedShape(float DeltaTime = -1.0f);  // Pass DeltaTime for consistent smoothing
-
-	// Wing geometry helpers
-	// GetRibCount, GetPointsPerRib, GetAirfoilPoint removed (were unused)
-	int32 GetRibVertexIndex(int32 RibIdx, int32 PointIdx) const;
 
 	float GetGroundZ(FVector Pos) const;
 	// Cached ground Z — call once per tick, then use the cached value
@@ -637,30 +509,6 @@ protected:
 
 	// Update dynamic wind (gusts, turbulence, direction shift) — called from both ground and flight
 	void UpdateDynamicWind(float DeltaTime, float GustAmplitude);
-
-	// === GROUND HANDLING HELPERS (split from UpdateInflation) ===
-	// Compute ground-level wind vector (with direction shift and ground gradient)
-	FVector ComputeGroundWind();
-	// Update collapse physics during kiting (frontal, asymmetric, recovery)
-	void UpdateKitingCollapses(float DeltaTime, const FVector& PilotFwd, const FVector& PilotRight);
-
-	// === FLIGHT PHYSICS HELPERS (split from UpdateFlight) ===
-	// Compute thermal lift (m/s) at current position and altitude
-	float ComputeThermalLiftMs(float AltitudeM) const;
-	// Handle ground collision/landing — returns true if landed
-	bool HandleLanding(ACharacter* Char, float DeltaTime, FVector& NewVel, float TotalMassKg);
-	// Update wing position from rigid line constraint (called each flight tick)
-	void UpdateWingPositionFromLines(const FVector& PawnFwd, float LiftN, float DragN, float LineLength, float WeightShiftCGOffsetM);
-	// Apply velocity safety caps (NaN/explosion protection only)
-	void ApplyVelocitySafetyCaps(FVector& NewVel);
-
-	// Shift all particles by a world-space delta (used when moving the actor)
-	void ShiftAllParticles(FVector Shift);
-
-	// Cached canopy bounds (computed once in InitCloth, not every frame)
-	FVector CachedCanopyMin = FVector::ZeroVector;
-	FVector CachedCanopyMax = FVector::ZeroVector;
-	bool bCanopyBoundsCached = false;
 
 	// === PER-TICK CACHED VALUES (avoid redundant line traces per frame) ===
 	float CachedWingGroundZ = 0.0f;     // Ground Z at wing position (cached per tick)
@@ -671,197 +519,72 @@ protected:
 	UPROPERTY()
 	class UParamotorGameInstance* CachedGameInstance = nullptr;
 
-	// ============================================================
-	// FFlightContext — per-frame shared state for UpdateFlight helpers
-	// Holds locals that are produced by one section and consumed by
-	// later sections. Declared as a nested struct so the split helpers
-	// can read/write the same values without duplicating state in the
-	// actor itself. All values are reset at the start of UpdateFlight.
-	// ============================================================
-	struct FFlightContext
+	// === THERMAL SYSTEM ===
+	TArray<FThermal> Thermals;
+	float ThermalSpawnTimer = 0.0f;        // Timer for spawning new thermals
+	float ThermalStrengthMultiplier = 1.0f; // From temperature, cloud cover, time of day
+	float CloudbaseAltitudeM = 1500.0f;    // Thermal top altitude (m above ground) — from dew point
+	float ThermalSinkMs = 0.0f;            // Compensating subsidence between thermals (m/s)
+	float CurrentThermalClimbRate = 0.0f;  // Current peak thermal climb rate (m/s)
+
+	// Thermal system methods
+	void UpdateThermals(float DeltaTime);
+	void SpawnThermal();
+	float GetThermalLiftAtPosition(FVector WorldPos, float AltitudeM);  // Returns updraft m/s
+	float GetThermalSinkAtPosition(FVector WorldPos, float AltitudeM);  // Returns subsidence m/s
+	float ComputeThermalStrengthMultiplier() const;  // From weather conditions
+
+	// Public accessors for atmospheric state (used by HUD, windsock, etc.)
+public:
+	EFlyability GetFlyability() const { return CurrentFlyability; }
+	bool IsOverdevelopmentRisk() const { return bOverdevelopmentRisk; }
+	float GetBoundaryLayerHeight() const { return BoundaryLayerHeightM; }
+	float GetCloudbase() const { return CloudbaseAltitudeM; }
+	float GetDewPoint() const { return DewPointC; }
+protected:
+
+	// === TICK HELPER ===
+	void TickTestWing(float DeltaTime);
+
+	// === TICK SUB-HELPERS (split from TickTestWing) ===
+	void UpdateConnectedState(float DeltaTime);  // Line tension drag, yaw, inflation transition
+	void UpdateRiserMesh();                      // Position riser mesh at carabiners or line bottoms
+
+	// === INIT HELPERS (split from BeginPlay) ===
+	void LoadMaterials();                        // Load canopy + line materials
+
+	// === FLIGHT MODE HELPER ===
+	void EnterFlightMode(ACharacter* Char);      // Disable CMC, set up flight rotation
+
+	// === FLIGHT PHYSICS ===
+	void UpdateFlight(float DeltaTime);
+	void CheckTakeoff(float DeltaTime);
+
+	// === FLIGHT PHYSICS HELPERS (split from UpdateFlight) ===
+	// Intermediate flight computation state shared between helpers.
+	struct FFlightCtx
 	{
-		// Inputs (set once at start of UpdateFlight)
-		APawn* Pawn = nullptr;
-		ACharacter* Char = nullptr;
-		FVector Vel = FVector::ZeroVector;
-		float DeltaTime = 0.0f;
-
-		// Environment (UpdateFlightEnvironment)
-		FVector ShiftedWindDir = FVector::ZeroVector;
-		FVector Wind = FVector::ZeroVector;
-		FVector ApparentWind = FVector::ZeroVector;
-		FVector HorizApparent = FVector::ZeroVector;
-		FVector AltitudeWind = FVector::ZeroVector;
-		FVector TurbulenceVelocity = FVector::ZeroVector;
-		float HorizSpeed = 0.0f;
-		float Vms = 0.0f;
-		float AltitudeM = 0.0f;
-		float Rho = AIR_DENSITY_SEA_LEVEL;
-		float TurbStrength = 0.0f;
-		float TurbulenceAoA = 0.0f;
-		float ThermalLiftMs = 0.0f;
-
-		// Aerodynamic coefficients (UpdateAerodynamicCoefficients)
-		float HalfArea = 0.0f;
-		float StallAoA = 0.0f;
-		float WingspanM = 0.0f;
-		float LeftAoA = 0.0f;
-		float RightAoA = 0.0f;
-		float LeftCL = 0.0f;
-		float RightCL = 0.0f;
-		float LeftCD = 0.0f;
-		float RightCD = 0.0f;
-		float GroundEffectFactor = 1.0f;
-		float CL = 0.0f;
-		float CDWing = 0.0f;
-
-		// Collapse (UpdateCollapseDetection)
-		float CellDeflateRate = 0.0f;
-		float CellRefillRate = 0.0f;
-		float RefillDelay = 0.0f;
-
-		// Forces (UpdateFlightForces)
-		float Vtot = 0.0f;
-		float VmsTotal = 0.0f;
-		FVector ApparentDir = FVector::ZeroVector;
-		float LeftLiftN = 0.0f;
-		float RightLiftN = 0.0f;
-		float LiftN = 0.0f;
-		float LeftDragN = 0.0f;
-		float RightDragN = 0.0f;
-		float PilotDragN = 0.0f;
-		float LineDragN = 0.0f;
-		float DragN = 0.0f;
-		float ThrustN = 0.0f;
-		float PilotDragArea = 0.5f;
-		float CDPilot = 0.5f;
-		float LineDragArea = 0.06f;
-		float CDLine = 1.0f;
-		float LineMassKg = 1.5f;
-		float TotalMassKg = 0.0f;
-		float LiftAccel = 0.0f;
-		float DragAccel = 0.0f;
-		float ThrustAccel = 0.0f;
-		float GravityAccel = GRAVITY_CM_S2;
-		float TotalEffectiveBrake = 0.0f;
-
-		// Pendulum / pitch (UpdatePendulumAndPitch)
-		float LineLength = LINE_LENGTH_CM;
-		float PendulumOmega = 0.0f;
-		float PendulumOmegaSq = 0.0f;
-		float PendulumDriveAccel = 0.0f;
-		float PendulumBrakeAccel = 0.0f;
-		float DampingRatio = 0.0f;
-		float PitchOmega = 0.0f;
-		float SpeedError = 0.0f;
-		float CurrentSpeedMs = 0.0f;
-		float PitchTarget = 0.0f;
-		float MaxHangPointOffsetCm = 0.0f;
-		float HangPointTiltDeg = 0.0f;
-
-		// Yaw / roll (UpdateYawRollDynamics)
-		float YawRate = 0.0f;
-		float TargetBank = 0.0f;
-		float TargetRoll = 0.0f;
-		float WingInertiaRoll = 0.0f;
-		float WingInertiaYaw = 0.0f;
-		float PropTorqueNM = 0.0f;
-		float WeightShiftCGOffset = 0.0f;
-		float WeightShiftRollMoment = 0.0f;
-		float FlightEffectiveMassKg = 0.0f;
-
-		// Movement (ApplyFlightForces)
-		FVector NewVel = FVector::ZeroVector;
+		float Vms = 0.0f;             // Horizontal airspeed (m/s)
+		float AoA = 0.0f;             // Angle of attack (deg)
+		float CL = 0.0f;             // Lift coefficient
+		float CDtotal = 0.0f;        // Total drag coefficient
+		float TotalBrake = 0.0f;     // Average brake 0-1
+		float Rho = 1.225f;          // Air density at altitude
+		float AltitudeM = 0.0f;      // Altitude above ground (m)
+		float TotalLiftN = 0.0f;     // Total lift force (N)
+		float TotalDragN = 0.0f;     // Total drag force (N)
+		float ThrustN = 0.0f;        // Engine thrust (N)
+		float TotalMassKg = 0.0f;    // Pilot + wing mass (kg)
+		FVector ApparentHoriz = FVector::ZeroVector;  // Horizontal apparent wind (cm/s)
+		FVector ApparentDir = FVector::ForwardVector;  // Normalized apparent wind dir
+		FVector ShiftedWindDir = FVector::ForwardVector; // Wind dir with turbulence shift
+		FVector NewVel = FVector::ZeroVector;  // Integrated velocity (cm/s)
 	};
-
-	// === FLIGHT PHYSICS SPLIT HELPERS (all operate on FFlightContext) ===
-	// Each helper corresponds to a contiguous section of the original UpdateFlight.
-	// Order of calls in UpdateFlight MUST match the original section order to
-	// preserve data flow (later sections read values produced by earlier ones).
-	void UpdateFlightEnvironment(FFlightContext& C);
-	void UpdateAerodynamicCoefficients(FFlightContext& C);
-	void UpdateCollapseDetection(FFlightContext& C);
-	void UpdateLineTensionAndStretch(FFlightContext& C);
-	void UpdateFlightForces(FFlightContext& C);
-	void UpdatePendulumAndPitch(FFlightContext& C);
-	void UpdateYawRollDynamics(FFlightContext& C);
-	void UpdatePilotOrientation(FFlightContext& C);
-	void ApplyFlightForces(FFlightContext& C);
-
-	// ============================================================
-	// FClothContext — per-frame shared state for SimulateCloth helpers
-	// Holds locals produced by one section and consumed by later sections.
-	// All values are reset at the start of SimulateCloth.
-	// ============================================================
-	struct FClothContext
-	{
-		// Inputs
-		float DeltaTime = 0.0f;
-		float EffectiveDamping = 0.0f;
-		bool bSkipCanopyPhysics = false;
-		FVector CachedActorLoc = FVector::ZeroVector;
-
-		// Kiting geometry (UpdateKitingGeometry)
-		FVector PilotVel = FVector::ZeroVector;
-		FVector PilotFwdDir = FVector::ForwardVector;
-		FVector PilotRight = FVector::RightVector;
-		float SpeedMs = 0.0f;
-		float WindMs = 0.0f;
-		FVector ShiftedWindDir = FVector::ZeroVector;
-		FVector WindVelVec = FVector::ZeroVector;
-		FVector ApparentWindVec = FVector::ZeroVector;
-		float ApparentWindMs = 0.0f;
-		FVector CarabMid = FVector::ZeroVector;
-		FVector WingPos = FVector::ZeroVector;
-		FVector ToWingFromCarab = FVector::ZeroVector;
-		FVector HorizToWing = FVector::ZeroVector;
-		float HorizDist = 0.0f;
-		float HeightAboveCarab = 0.0f;
-		float DistFromCarab = 0.0f;
-		float GroundZ = 0.0f;
-		float HeightAboveGround = 0.0f;
-		float PendAngle = 0.0f;
-
-		// Mass (UpdateKitingGeometry)
-		float Rho = AIR_DENSITY_SEA_LEVEL;
-		float WingMassKg = 0.0f;
-		float ApparentMassKg = 0.0f;
-		float EffectiveMassKg = 0.0f;
-		float WingWeightN = 0.0f;
-
-		// Forces (UpdateKitingForces)
-		FVector ALinesPullForce = FVector::ZeroVector;
-		FVector WindCatchForce = FVector::ZeroVector;
-		FVector CellLiftForce = FVector::ZeroVector;
-		FVector GravityForce = FVector::ZeroVector;
-		FVector PendulumForce = FVector::ZeroVector;
-		FVector WindDragForce = FVector::ZeroVector;
-		FVector BrakeDampForce = FVector::ZeroVector;
-		FVector AirDamping = FVector::ZeroVector;
-		FVector TurbulenceForce = FVector::ZeroVector;
-		FVector InertialLagForce = FVector::ZeroVector;
-		FVector YawedFlightForce = FVector::ZeroVector;
-		FVector BrakeSurgeForce = FVector::ZeroVector;
-		float ALinesPullN = 0.0f;
-		float WindCatchN = 0.0f;
-		float TotalLiftN = 0.0f;
-		float TotalDragN = 0.0f;
-		float TotalBrake = 0.0f;
-
-		// Yaw dynamics (UpdateKitingYawDynamics)
-		float KiteYawAccel = 0.0f;
-		FVector ToNewPos = FVector::ZeroVector;
-	};
-
-	// === CLOTH SIM SPLIT HELPERS (all operate on FClothContext) ===
-	void SimulateClothParticles(FClothContext& C);
-	void SimulateClothConstraints(FClothContext& C);
-	void UpdateConnectedState(FClothContext& C);
-	void UpdateKitingGeometry(FClothContext& C);
-	void UpdateKitingForces(FClothContext& C);
-	void UpdateKitingYawDynamics(FClothContext& C);
-	void UpdateKitingIntegration(FClothContext& C);
-	void UpdateKitingCanopy(FClothContext& C);
-	void UpdateKitingStateTransitions(FClothContext& C);
-	void UpdateKitingRotation(FClothContext& C);
+	void ComputeAeroState(FFlightCtx& Ctx, FVector Vel, float DeltaTime, FVector PawnLoc);
+	void ComputeForces(FFlightCtx& Ctx);
+	void IntegrateForces(FFlightCtx& Ctx, FVector Vel, float DeltaTime, FVector PawnLoc);
+	void UpdatePendulumAndSteering(float DeltaTime);
+	void UpdatePilotOrientation(APawn* Pawn, ACharacter* Char, float DeltaTime);
+	void HandleLanding(APawn* Pawn, ACharacter* Char, UCharacterMovementComponent* CMC, FFlightCtx& Ctx, FVector& NewLoc, float DeltaTime);
+	void UpdateWingTransform(FFlightCtx& Ctx, FVector PilotLoc, float DeltaTime);
 };

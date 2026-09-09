@@ -49,6 +49,14 @@ public:
 	bool IsFuelCutoffOn() const { return bFuelCutoff; }
 	void ToggleFuelCutoff();
 
+	// When true, load the single test frame mesh instead of individual parts
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Paramotor")
+	bool bUseTestFrame = false;
+
+	// When true, load the Rider Moster 185 mesh
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Paramotor")
+	bool bUseRider185 = false;
+
 	// === REAL PROPULSION API ===
 	// Compute actual thrust force in Newtons based on RPM, propeller model, and airspeed
 	// Uses momentum theory: T = 2 * rho * A * Vi² where Vi is induced velocity
@@ -64,9 +72,6 @@ public:
 	// Get world-space carabiner positions from the wing clip rings on the frame
 	// Returns false if the rings can't be found (falls back to estimated position)
 	bool GetCarabinerWorldPositions(FVector& OutLeft, FVector& OutRight) const;
-
-	// Called by WingActor to update A-arm orientation toward the wing
-	void UpdateWingTarget(const FVector& WingWorldPos, bool bConnected);
 
 	// Update A-arm pivots to point toward the wing (called in Tick)
 	void UpdateAArmPivots();
@@ -155,6 +160,10 @@ protected:
 	UPROPERTY()
 	TArray<FTransform> PropMeshBaseTransforms;
 
+	// Center of propeller rotation (world-relative during spool-up)
+	UPROPERTY()
+	FVector PropCenter = FVector(15.0f, 0.0f, 73.0f);
+
 	bool bEquipped = false;
 
 	// Engine state
@@ -187,6 +196,8 @@ protected:
 
 	// Build the A-arm pivot hierarchy (frame → stud → pivot → A-arm → ring → carabiner → risers)
 	void BuildAArmHierarchy();
+	// Build one side (left or right) of the A-arm hierarchy. Returns the pivot scene component.
+	USceneComponent* BuildSingleAArmSide(bool bLeft, USceneComponent* Stud);
 
 	// Shared blade-element integration helper (used by GetThrustForceN and GetPropTorqueNM)
 	// Returns thrust (N) and torque (N·m) for the current propeller state

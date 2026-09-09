@@ -8,6 +8,7 @@
 
 class AParamotorActor;
 class AWingActor;
+class AParamotorCharacter;
 
 UCLASS()
 class PARAMOTORSIM_API AParamotorPlayerController : public APlayerController
@@ -30,17 +31,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Spawn")
 	void SpawnParamotor();
 
-	/** Spawn the wing in front of the player (uses current model index) */
+	/** Spawn the MacPara Charger 25M test wing (the only wing in the game) */
 	UFUNCTION(BlueprintCallable, Category = "Spawn")
-	void SpawnWing();
+	void SpawnTestWing();
 
-	/** Spawn a specific wing model by index */
+	/** Spawn the test paramotor frame (ParamotorTestFrame mesh from ParamotorTestGood.blend) */
 	UFUNCTION(BlueprintCallable, Category = "Spawn")
-	void SpawnWingByModel(int32 ModelIndex);
+	void SpawnTestParamotor();
 
-	/** Get current wing model index and available models for HUD */
-	int32 GetCurrentWingModelIndex() const { return CurrentWingModelIndex; }
-	const TArray<FString>& GetWingModelNames() const { return WingModelNames; }
+	/** Spawn the Rider Moster 185 paramotor (from Codex Blender model) */
+	UFUNCTION(BlueprintCallable, Category = "Spawn")
+	void SpawnRider185();
 
 	/** Clear all spawned actors (paramotor, wing, mesh parts) */
 	UFUNCTION(BlueprintCallable, Category = "Spawn")
@@ -85,6 +86,11 @@ public:
 	void OnHangPointForward();
 	void OnHangPointBack();
 
+	/** Free cam — middle mouse button toggles look-only mode (camera moves, character doesn't) */
+	void OnFreeCamPressed();
+	void OnFreeCamReleased();
+	bool bFreeCamActive = false;
+
 	/** The currently spawned wing actor */
 	UPROPERTY()
 	AWingActor* SpawnedWingActor = nullptr;
@@ -99,9 +105,6 @@ protected:
 	bool bIsPaused = false;
 	float IKLogTimer = 0.0f;  // Member variable (not static) for IK debug logging
 
-	/** Apply wing model specs to a spawned wing actor */
-	void ApplyWingModel(AWingActor* Wing, int32 ModelIndex);
-
 	/** Track spawned actors so we can clean them up */
 	UPROPERTY()
 	TArray<AActor*> SpawnedActors;
@@ -114,20 +117,12 @@ protected:
 	bool bThrottleUpHeld = false;
 	bool bThrottleDownHeld = false;
 
-	// Trimmer input state
-	bool bTrimmerFastHeld = false;
-	bool bTrimmerSlowHeld = false;
-
 	// Brake input state
 	bool bLeftBrakeHeld = false;
 	bool bRightBrakeHeld = false;
 	// Progressive brake amounts (0-1) — keys ramp up/down like real brake handles
 	float LeftBrakeAmount = 0.0f;
 	float RightBrakeAmount = 0.0f;
-
-	// Wing model selection
-	int32 CurrentWingModelIndex = 0;
-	TArray<FString> WingModelNames;
 
 	virtual void Tick(float DeltaTime) override;
 
@@ -136,4 +131,35 @@ protected:
 	// controls the pawn's full rotation (bank, pitch, yaw). The controller should
 	// only update the control rotation for camera look, NOT force it on the pawn.
 	virtual void UpdateRotation(float DeltaTime) override;
+
+private:
+	// Compute carabiner world positions from the paramotor's real hardware,
+	// falling back to character-position-based estimation if unavailable.
+	// Returns true if real positions were used, false if fallback was used.
+	bool GetCarabinerPositions(FVector& OutLeft, FVector& OutRight);
+
+	// ============================================================
+	// Tick helpers (split from Tick)
+	// ============================================================
+
+	// Process throttle input (ramp up/down + spring return) and pass thrust to character
+	void UpdateThrottle(float DeltaTime);
+
+	// Update grab position while grabbing — follows the crosshair aim point
+	void UpdateGrabPosition(APawn* CachedPawn);
+
+	// Update wing riser connection: carabiners, brakes, weight shift, arm IK
+	void UpdateWingRig(float DeltaTime, APawn* CachedPawn);
+
+	// Compute which brake handle is on the pilot's left vs right (wing may be yawed)
+	void ComputeBrakeArmTargets(AParamotorCharacter* Char, AWingActor* Wing,
+		FVector& OutPilotLeftTarget, FVector& OutPilotRightTarget);
+
+	// ============================================================
+	// Spawn helpers
+	// ============================================================
+
+	// Trace down from Start to find ground Z. Returns ground Z or 0.0f if no hit.
+	float FindGroundZ(FVector Start, APawn* IgnorePawn);
 };
+

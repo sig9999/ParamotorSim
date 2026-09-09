@@ -25,5 +25,8 @@ public:
 	float Temperature = 20.0f;
 
 	UPROPERTY(BlueprintReadWrite, Category="Weather")
+	float Humidity = 60.0f;  // % — used for dew point, cloudbase, thermal strength
+
+	UPROPERTY(BlueprintReadWrite, Category="Weather")
 	float TimeOfDay = 12.0f;
 };

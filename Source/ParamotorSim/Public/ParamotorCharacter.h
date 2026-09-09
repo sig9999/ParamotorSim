@@ -138,7 +138,6 @@ private:
 
 	// Footstep timing
 	float FootstepTimer = 0.0f;
-	bool bWasMoving = false;
 
 	// Trip/fall state
 	bool bIsFallen = false;
@@ -157,10 +156,6 @@ private:
 	// Current thrust from paramotor (set by player controller)
 	float CurrentThrust = 0.0f;
 
-	// Mesh lean from thrust (pitch offset for posture)
-	float TargetLeanPitch = 0.0f;
-	float CurrentLeanPitch = 0.0f;
-
 	// True if player was in the air while thrust was active (causes trip on landing)
 	bool bWasInAirWithThrust = false;
 
@@ -170,7 +165,6 @@ private:
 	float InjuryHealTimer = 0.0f;      // Time since injury (for gradual healing)
 	float InjuryMaxSpeedMultiplier = 1.0f;  // Applied to MaxWalkSpeed
 	float InjuryJumpMultiplier = 1.0f;     // Applied to JumpZVelocity
-	bool bInjuryLimpActive = false;    // Visual limp flag for anim
 
 	void UpdateBrakeArmIK(float DeltaTime);
 	void PlayFootstep();
@@ -187,7 +181,16 @@ private:
 	// === TICK SPLIT HELPERS ===
 	// Returns true if the fall is being handled (caller should early-return).
 	bool UpdateFallState(float DeltaTime, UCharacterMovementComponent* CMC, float EffectiveMaxSpeed);
+
+	// === BEGINPLAY SPLIT HELPERS ===
+	void LoadCharacterMesh();       // Replace body with techwear CombinedSkelMesh
+	void LoadAnimations();          // Load anim assets and set up anim instance
+	void ApplySkinTone();           // Apply skin material to head and body
+	void LoadFootstepSounds();      // Load footstep sound banks
+	void LoadAmbientAudio();        // Start wind and fall sounds
 	void UpdateThrustGroundPhysics(float DeltaTime, UCharacterMovementComponent* CMC, float EffectiveMaxSpeed, bool bOnGround, bool bThrustActive, class AParamotorPlayerController* PC);
+	// Apply forward thrust acceleration to a running pilot, clamped to wing-assisted max run speed.
+	void ApplyThrustRunningBoost(float DeltaTime, UCharacterMovementComponent* CMC, class AParamotorPlayerController* PC);
 	void UpdateThrustAirPhysics(float DeltaTime, UCharacterMovementComponent* CMC, bool bThrustActive, bool bOnGround, bool bWingFlying, class AParamotorPlayerController* PC);
 	void UpdatePostureLean(float DeltaTime, UCharacterMovementComponent* CMC, class AParamotorPlayerController* PC);
 	void UpdateAnimationState(float DeltaTime, UCharacterMovementComponent* CMC);
@@ -195,4 +198,8 @@ private:
 	void UpdateWindAudio();
 	void UpdateTripRisk(float DeltaTime, UCharacterMovementComponent* CMC, class AParamotorPlayerController* PC);
 	void UpdateRotationHandling(float DeltaTime);
+
+	// Get current thrust force (Newtons) from the equipped paramotor.
+	// Returns 0 if no paramotor is equipped. Airspeed is computed from velocity.
+	float GetEquippedThrustN();
 };

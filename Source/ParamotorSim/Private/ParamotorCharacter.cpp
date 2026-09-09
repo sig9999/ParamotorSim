@@ -8,17 +8,15 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/AudioComponent.h"
-#include "Animation/AnimSingleNodeInstance.h"
-#include "Materials/MaterialInstance.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/SkeletalMesh.h"
-#include "Engine/Texture2D.h"
 #include "Sound/SoundBase.h"
 #include "Kismet/GameplayStatics.h"
 #include "ParamotorGameInstance.h"
 #include "ParamotorPlayerController.h"
 #include "ParamotorActor.h"
 #include "WingActor.h"
+#include "AtmosphereModel.h"
 
 AParamotorCharacter::AParamotorCharacter()
 {
@@ -147,10 +145,16 @@ void AParamotorCharacter::BeginPlay()
 	GetMesh()->SetSimulatePhysics(false);
 	GetMesh()->bBlendPhysics = false;
 
-	// === Load clothing: Replace body mesh with techwear CombinedSkelMesh ===
-	// The CombinedSkelMesh includes body + techwear jacket + pants + shoes as one
-	// skeletal mesh. This is the cleanest approach — one mesh, no z-fighting.
-	// The head mesh stays separate (attached via SetLeaderPoseComponent).
+	LoadCharacterMesh();
+	LoadAnimations();
+	ApplySkinTone();
+	LoadFootstepSounds();
+	LoadAmbientAudio();
+}
+
+void AParamotorCharacter::LoadCharacterMesh()
+{
+	// Replace body mesh with techwear CombinedSkelMesh (body + jacket + pants + shoes)
 	USkeletalMesh* ClothedBody = LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Techwear/techwearOutfit/Meshes/bodyShapeG_CombinedSkelMesh.bodyShapeG_CombinedSkelMesh"));
 	if (!ClothedBody)
 		ClothedBody = LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Techwear/techwearOutfit/Meshes/bodyShapeH_CombinedSkelMesh.bodyShapeH_CombinedSkelMesh"));
@@ -158,15 +162,12 @@ void AParamotorCharacter::BeginPlay()
 	{
 		GetMesh()->SetSkeletalMesh(ClothedBody);
 		UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: Replaced body mesh with techwear CombinedSkelMesh: %s"), *ClothedBody->GetName());
-		// Hide the outfit/shoes overlay meshes — no longer needed
 		if (OutfitMesh) OutfitMesh->SetVisibility(false);
 		if (ShoesMesh) ShoesMesh->SetVisibility(false);
 	}
 	else
 	{
 		UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: Techwear CombinedSkelMesh not found — trying Hightop for shoes only"));
-
-		// Fall back: use Hightop CombinedSkelMesh for shoes only (as overlay)
 		if (ShoesMesh && !ShoesMesh->GetSkeletalMeshAsset())
 		{
 			USkeletalMesh* ShoeSkel = LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Hightop/meshes/m_med_nrw_CombinedSkelMesh.m_med_nrw_CombinedSkelMesh"));
@@ -178,25 +179,20 @@ void AParamotorCharacter::BeginPlay()
 			}
 		}
 	}
+}
 
+void AParamotorCharacter::LoadAnimations()
+{
 	if (!WalkIdleAnim)
-	{
 		WalkIdleAnim = LoadObject<UAnimSequence>(nullptr, TEXT("/MetaHumanCharacter/Optional/Animation/UEFNAnimPreset/Locomotion/AS_MH_Neutral_Stand_Idle_Loop.AS_MH_Neutral_Stand_Idle_Loop"));
-	}
 	if (!WalkAnimAsset)
-	{
 		WalkAnimAsset = LoadObject<UAnimSequence>(nullptr, TEXT("/MetaHumanCharacter/Optional/Animation/UEFNAnimPreset/Locomotion/AS_MH_Neutral_Walk_Loop_F.AS_MH_Neutral_Walk_Loop_F"));
-	}
 	if (!JogAnimAsset)
-	{
 		JogAnimAsset = LoadObject<UAnimSequence>(nullptr, TEXT("/MetaHumanCharacter/Optional/Animation/UEFNAnimPreset/Locomotion/AS_MH_Neutral_Run_Loop_F.AS_MH_Neutral_Run_Loop_F"));
-	}
 
 	UE_LOG(LogTemp, Warning, TEXT("BeginPlay: Idle=%p Walk=%p Jog=%p"), (void*)WalkIdleAnim, (void*)WalkAnimAsset, (void*)JogAnimAsset);
 
-	// Use custom anim instance for IK support
 	GetMesh()->SetAnimationMode(EAnimationMode::AnimationBlueprint);
-	// Set our custom anim instance class
 	GetMesh()->SetAnimInstanceClass(UParamotorAnimInstance::StaticClass());
 
 	if (UParamotorAnimInstance* ParamotorAnim = Cast<UParamotorAnimInstance>(GetMesh()->GetAnimInstance()))
@@ -212,8 +208,10 @@ void AParamotorCharacter::BeginPlay()
 	{
 		UE_LOG(LogTemp, Error, TEXT("BeginPlay: Failed to get ParamotorAnimInstance"));
 	}
+}
 
-	// Darker, uniform skin tone.
+void AParamotorCharacter::ApplySkinTone()
+{
 	const FLinearColor SkinColor(0.24f, 0.15f, 0.10f, 1.0f);
 
 	if (HeadMesh)
@@ -247,16 +245,12 @@ void AParamotorCharacter::BeginPlay()
 		BodySkin->SetVectorParameterValue(TEXT("BaseColor"), SkinColor);
 		BodySkin->SetScalarParameterValue(TEXT("Use BaseColor Map"), 0.0f);
 
-		// Only apply skin material to slot 0 (body skin).
-		// If we're using a CombinedSkelMesh with clothing, the other slots have
-		// clothing materials (jacket, pants, shoes) that should NOT be overwritten.
-		// For the naked body (MHC_Frey_FullBody), all slots are skin.
+		// Only apply skin material to slot 0 if using clothed body (CombinedSkelMesh)
 		int32 SkinSlotCount = GetMesh()->GetNumMaterials();
-		// Check if we're using the clothed body — if so, only override slot 0
 		USkeletalMesh* CurrentMesh = GetMesh()->GetSkeletalMeshAsset();
 		if (CurrentMesh && CurrentMesh->GetName().Contains(TEXT("CombinedSkelMesh")))
 		{
-			SkinSlotCount = 1;  // Only slot 0 is skin; rest are clothing
+			SkinSlotCount = 1;
 			UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: Using clothed body — only overriding slot 0 (skin)"));
 		}
 		for (int32 i = 0; i < SkinSlotCount; ++i)
@@ -264,8 +258,10 @@ void AParamotorCharacter::BeginPlay()
 			GetMesh()->SetMaterial(i, BodySkin);
 		}
 	}
+}
 
-	// Load footstep sounds - multiple variations per surface for natural variety
+void AParamotorCharacter::LoadFootstepSounds()
+{
 	// Grass (normal walk)
 	for (int32 i = 1; i <= 6; i++)
 	{
@@ -308,8 +304,10 @@ void AParamotorCharacter::BeginPlay()
 	UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: Loaded %d grass + %d grass-heavy + %d dirt + %d dirt-heavy footstep sounds"),
 		GrassFootstepSounds.Num(), GrassFootstepHeavySounds.Num(),
 		DirtFootstepSounds.Num(), DirtFootstepHeavySounds.Num());
+}
 
-	// Start wind ambient sound
+void AParamotorCharacter::LoadAmbientAudio()
+{
 	USoundBase* WindSound = LoadObject<USoundBase>(nullptr, TEXT("/Game/Sounds/wind_ambient.wind_ambient"));
 	if (WindSound && WindAmbientAudio)
 	{
@@ -319,17 +317,22 @@ void AParamotorCharacter::BeginPlay()
 		UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: Wind ambient started"));
 	}
 
-	// Load fall sound
 	USoundBase* FallSound = LoadObject<USoundBase>(nullptr, TEXT("/Game/Sounds/fall_sound.fall_sound"));
 	if (FallSound && FallAudio)
 	{
 		FallAudio->SetSound(FallSound);
 	}
+	UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: BeginPlay at %s possessed=%d"),
+		*GetActorLocation().ToString(), IsPlayerControlled());
 }
 
 void AParamotorCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	static float DBG_T = 0.f; DBG_T += DeltaTime;
+	if (DBG_T > 4.f && DBG_T < 4.2f)
+		UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: Tick loc=%s movemode=%d possessed=%d"),
+			*GetActorLocation().ToString(), (int)GetCharacterMovement()->MovementMode, IsPlayerControlled());
 
 	UCharacterMovementComponent* CMC = GetCharacterMovement();
 
@@ -497,6 +500,17 @@ bool AParamotorCharacter::UpdateFallState(float DeltaTime, UCharacterMovementCom
 	return true;  // Skip all normal movement/animation/audio code while fallen
 }
 
+float AParamotorCharacter::GetEquippedThrustN()
+{
+	AParamotorPlayerController* PC = Cast<AParamotorPlayerController>(GetController());
+	if (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped())
+	{
+		float AirspeedMs = GetVelocity().Size() / CM_PER_M;
+		return PC->GetSpawnedParamotorActor()->GetThrustForceN(AirspeedMs);
+	}
+	return 0.0f;
+}
+
 void AParamotorCharacter::UpdateThrustGroundPhysics(float DeltaTime, UCharacterMovementComponent* CMC, float EffectiveMaxSpeed, bool bOnGround, bool bThrustActive, AParamotorPlayerController* PC)
 {
 	if (!CMC) return;
@@ -526,70 +540,16 @@ void AParamotorCharacter::UpdateThrustGroundPhysics(float DeltaTime, UCharacterM
 		}
 	}
 
-	FVector CurrentAccel = CMC->GetCurrentAcceleration();
-	bool bHasMovementInput = CurrentAccel.Size2D() > 1.0f;
+	// Use the actual movement input (WASD) or existing velocity to decide if the pilot is running.
+	// The old check used CMC->GetCurrentAcceleration(), which is ~0 when running at a steady speed,
+	// causing the character to be treated as "standing still" and stopped by thrust.
+	bool bHasMovementInput = (CMC->GetLastInputVector().Size2D() > 0.1f) || (CMC->Velocity.Size2D() > 20.0f);
 
 	if (bThrustActive && bOnGround)
 	{
 		if (bHasMovementInput)
 		{
-			// === WALKING + THRUST: boost forward speed ===
-			float PilotLegPowerW = 350.0f;
-			float CharMassForRun = CMC->Mass;
-			if (CharMassForRun <= 0.0f) CharMassForRun = 100.0f;
-			float TotalMass = CharMassForRun + 7.5f;
-			float RollingMu = 0.4f;
-			float RollingResistanceN = RollingMu * TotalMass * GRAVITY_MS2;
-			float MaxRunSpeedMs = (RollingResistanceN > 1.0f) ? PilotLegPowerW / RollingResistanceN : 8.0f;
-			MaxRunSpeedMs = FMath::Clamp(MaxRunSpeedMs, 1.5f, 12.0f);
-			const float MaxRunSpeed = MaxRunSpeedMs * CM_PER_M;
-
-			CMC->MaxWalkSpeed = MaxRunSpeed;
-			CMC->BrakingDecelerationWalking = 100.0f;
-			CMC->GroundFriction = 4.0f;
-
-			float ThrustForceN = 0.0f;
-			if (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped())
-			{
-				float AirspeedMs = GetVelocity().Size() / CM_PER_M;
-				ThrustForceN = PC->GetSpawnedParamotorActor()->GetThrustForceN(AirspeedMs);
-			}
-			float ThrustForceUE = ThrustForceN * CM_PER_M;
-			float CharMass = CMC->Mass;
-			if (CharMass <= 0.0f) CharMass = 100.0f;
-			float Accel = ThrustForceUE / CharMass;
-
-			FVector Forward = GetActorForwardVector();
-			Forward.Z = 0.0f;
-			Forward.Normalize();
-
-			FVector ThrustVel = Forward * Accel * DeltaTime;
-			FVector CurrentVel = GetVelocity();
-			FVector NewVel = CurrentVel + ThrustVel;
-
-			float EffectiveMaxRun = MaxRunSpeed;
-			if (PC && PC->SpawnedWingActor)
-			{
-				EWingState WState = PC->SpawnedWingActor->GetWingState();
-				if (WState == EWingState::Inflated)
-				{
-					float WingHelp = PC->SpawnedWingActor->GetDebugWeightSupport();
-					EffectiveMaxRun = MaxRunSpeed / FMath::Sqrt(FMath::Max(0.1f, 1.0f - WingHelp));
-				}
-			}
-
-			FVector HorizVel = FVector(NewVel.X, NewVel.Y, 0.0f);
-			if (HorizVel.Size() > EffectiveMaxRun)
-			{
-				FVector Clamped = HorizVel.GetSafeNormal() * EffectiveMaxRun;
-				NewVel = FVector(Clamped.X, Clamped.Y, CurrentVel.Z);
-			}
-
-			if (!(PC && PC->SpawnedWingActor && PC->SpawnedWingActor->GetWingState() == EWingState::Inflated))
-			{
-				NewVel.Z = CurrentVel.Z;
-			}
-			CMC->Velocity = NewVel;
+			ApplyThrustRunningBoost(DeltaTime, CMC, PC);
 		}
 		else
 		{
@@ -609,6 +569,62 @@ void AParamotorCharacter::UpdateThrustGroundPhysics(float DeltaTime, UCharacterM
 	}
 }
 
+void AParamotorCharacter::ApplyThrustRunningBoost(float DeltaTime, UCharacterMovementComponent* CMC, AParamotorPlayerController* PC)
+{
+	// === WALKING + THRUST: boost forward speed ===
+	float PilotLegPowerW = 350.0f;
+	float CharMassForRun = CMC->Mass;
+	if (CharMassForRun <= 0.0f) CharMassForRun = 100.0f;
+	float TotalMass = CharMassForRun + 7.5f;
+	float RollingMu = 0.4f;
+	float RollingResistanceN = RollingMu * TotalMass * GRAVITY_MS2;
+	float MaxRunSpeedMs = (RollingResistanceN > 1.0f) ? PilotLegPowerW / RollingResistanceN : 8.0f;
+	MaxRunSpeedMs = FMath::Clamp(MaxRunSpeedMs, 1.5f, 12.0f);
+	const float MaxRunSpeed = MaxRunSpeedMs * CM_PER_M;
+
+	CMC->MaxWalkSpeed = MaxRunSpeed;
+	CMC->BrakingDecelerationWalking = 100.0f;
+	CMC->GroundFriction = 4.0f;
+
+	float ThrustForceN = GetEquippedThrustN();
+	float ThrustForceUE = ThrustForceN * CM_PER_M;
+	float CharMass = CMC->Mass;
+	if (CharMass <= 0.0f) CharMass = 100.0f;
+	float Accel = ThrustForceUE / CharMass;
+
+	FVector Forward = GetActorForwardVector();
+	Forward.Z = 0.0f;
+	Forward = Forward.GetSafeNormal2D();
+
+	FVector ThrustVel = Forward * Accel * DeltaTime;
+	FVector CurrentVel = GetVelocity();
+	FVector NewVel = CurrentVel + ThrustVel;
+
+	float EffectiveMaxRun = MaxRunSpeed;
+	if (PC && PC->SpawnedWingActor)
+	{
+		EWingState WState = PC->SpawnedWingActor->GetWingState();
+		if (WState == EWingState::Inflated)
+		{
+			float WingHelp = PC->SpawnedWingActor->GetDebugWeightSupport();
+			EffectiveMaxRun = MaxRunSpeed / FMath::Sqrt(FMath::Max(0.1f, 1.0f - WingHelp));
+		}
+	}
+
+	FVector HorizVel = FVector(NewVel.X, NewVel.Y, 0.0f);
+	if (HorizVel.Size() > EffectiveMaxRun)
+	{
+		FVector Clamped = HorizVel.GetSafeNormal() * EffectiveMaxRun;
+		NewVel = FVector(Clamped.X, Clamped.Y, CurrentVel.Z);
+	}
+
+	if (!(PC && PC->SpawnedWingActor && PC->SpawnedWingActor->GetWingState() == EWingState::Inflated))
+	{
+		NewVel.Z = CurrentVel.Z;
+	}
+	CMC->Velocity = NewVel;
+}
+
 void AParamotorCharacter::UpdateThrustAirPhysics(float DeltaTime, UCharacterMovementComponent* CMC, bool bThrustActive, bool bOnGround, bool bWingFlying, AParamotorPlayerController* PC)
 {
 	if (!CMC) return;
@@ -616,12 +632,7 @@ void AParamotorCharacter::UpdateThrustAirPhysics(float DeltaTime, UCharacterMove
 	bool bIsAirborne = !bOnGround || bWingFlying;
 	if (bThrustActive && bIsAirborne && !bIsFallen && !bWingFlying)
 	{
-		float ThrustForceN = 0.0f;
-		if (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped())
-		{
-			float AirspeedMs = GetVelocity().Size() / CM_PER_M;
-			ThrustForceN = PC->GetSpawnedParamotorActor()->GetThrustForceN(AirspeedMs);
-		}
+		float ThrustForceN = GetEquippedThrustN();
 		float ThrustForceUE = ThrustForceN * CM_PER_M;
 		float CharMass = CMC->Mass;
 		if (CharMass <= 0.0f) CharMass = 100.0f;
@@ -643,42 +654,12 @@ void AParamotorCharacter::UpdatePostureLean(float DeltaTime, UCharacterMovementC
 {
 	if (!CMC) return;
 
-	float GroundSpeed = FVector(GetVelocity().X, GetVelocity().Y, 0.0f).Size();
-
-	if (CurrentThrust > 0.01f && !bIsFallen)
-	{
-		float ThrustHeightM = 1.5f;
-		float CGOffsetM = 0.3f;
-		float CharMass = FMath::Max(50.0f, CMC->Mass);
-		float ThrustN = 0.0f;
-		if (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped())
-		{
-			ThrustN = PC->GetSpawnedParamotorActor()->GetThrustForceN(GetVelocity().Size() / CM_PER_M);
-		}
-		else
-		{
-			ThrustN = CurrentThrust * MAX_THRUST_N;
-		}
-		float GravityN = CharMass * GRAVITY_MS2;
-		float ThrustLeanRad = FMath::Atan2(ThrustN * ThrustHeightM, GravityN * CGOffsetM);
-		float ThrustLean = ThrustLeanRad * RAD_TO_DEG;
-		float SpeedMs = GroundSpeed / CM_PER_M;
-		float MomentumLean = FMath::Atan2(CharMass * SpeedMs * SpeedMs * ThrustHeightM, GravityN * CGOffsetM) * RAD_TO_DEG;
-		TargetLeanPitch = FMath::Max(0.0f, ThrustLean - MomentumLean);
-	}
-	else
-	{
-		TargetLeanPitch = 0.0f;
-	}
-
-	CurrentLeanPitch = FMath::FInterpTo(CurrentLeanPitch, TargetLeanPitch, DeltaTime, 5.0f);
-
+	// Real forward-lean from thrust will come from animation/physics later.
+	// For now, just ensure the mesh stays at base rotation when not fallen/weight-shifting.
 	if (!bIsFallen && !bWeightShiftActive)
 	{
 		FQuat BaseQuat(FVector::UpVector, FMath::DegreesToRadians(-90.0f));
-		FQuat LeanQuat(FVector::RightVector, FMath::DegreesToRadians(CurrentLeanPitch));
-		FQuat FinalQuat = LeanQuat * BaseQuat;
-		GetMesh()->SetRelativeRotation(FinalQuat);
+		GetMesh()->SetRelativeRotation(BaseQuat);
 	}
 }
 
@@ -743,23 +724,56 @@ void AParamotorCharacter::UpdateFootstepAudio(float DeltaTime, UCharacterMovemen
 			PlayFootstep();
 			FootstepTimer = 0.0f;
 		}
-		bWasMoving = true;
 	}
 	else
 	{
-		bWasMoving = false;
 		FootstepTimer = 0.0f;
 	}
 }
 
 void AParamotorCharacter::UpdateWindAudio()
 {
-	if (WindAmbientAudio)
+	if (!WindAmbientAudio) return;
+
+	// Real wind noise: SPL ∝ U^5 (50 dB/decade), so amplitude ∝ U^2.5
+	// The sound source is apparent wind at the pilot/ear:
+	//   U_apparent = U_true_wind - U_vehicle (vector difference)
+	// We use the wing's live dynamic wind (includes gusts, turbulence, altitude gradient)
+	// for the true wind, and the pilot's velocity for the vehicle motion.
+
+	float WindMs = 0.0f;
+	FVector WindVec = FVector::ZeroVector;
+
+	// Try to get live wind from the wing actor (includes gusts, turbulence, gradient)
+	AParamotorPlayerController* PC = Cast<AParamotorPlayerController>(GetController());
+	if (PC && PC->SpawnedWingActor)
 	{
-		float SpeedRatio = FMath::Clamp(SmoothedAnimSpeed / 270.0f, 0.0f, 1.0f);
-		float WindVol = 0.25f + SpeedRatio * 0.15f;
-		WindAmbientAudio->SetVolumeMultiplier(WindVol);
+		WindVec = PC->SpawnedWingActor->GetWindVector() / 100.0f;  // cm/s to m/s
+		WindMs = WindVec.Size();
 	}
+	else if (UParamotorGameInstance* GI = GetWorld()->GetGameInstance<UParamotorGameInstance>())
+	{
+		WindMs = GI->WindSpeed;
+	}
+
+	// Apparent wind = true wind - vehicle velocity (vector)
+	FVector PilotVel = GetVelocity() / 100.0f;  // cm/s to m/s
+	FVector ApparentWindVec = WindVec - PilotVel;
+	float ApparentWindMs = ApparentWindVec.Size();
+
+	// Use the AtmosphereModel wind noise amplitude (U^2.5 scaling)
+	float NoiseAmplitude = ComputeWindNoiseAmplitude(ApparentWindMs);
+
+	// Map to volume: 0.05 (silence) to 0.7 (strong wind)
+	// The U^2.5 curve gives a realistic progression:
+	//   2 m/s → 0.06, 5 m/s → 0.15, 10 m/s → 0.35, 20 m/s → 0.65, 30 m/s → 0.70
+	float WindVol = 0.05f + NoiseAmplitude * 0.65f;
+	WindAmbientAudio->SetVolumeMultiplier(WindVol);
+
+	// Also modulate pitch slightly with wind speed (higher wind = slightly higher pitch)
+	// Real wind noise shifts toward higher frequencies at higher speeds
+	float PitchRatio = 0.9f + FMath::Clamp(ApparentWindMs / 30.0f, 0.0f, 1.0f) * 0.3f;
+	WindAmbientAudio->SetPitchMultiplier(PitchRatio);
 }
 
 void AParamotorCharacter::UpdateTripRisk(float DeltaTime, UCharacterMovementComponent* CMC, AParamotorPlayerController* PC)
@@ -785,12 +799,7 @@ void AParamotorCharacter::UpdateTripRisk(float DeltaTime, UCharacterMovementComp
 		float ThrustHeightM = 1.5f;
 		float FootOffsetM = 0.15f;
 		float PilotMassKg = FMath::Max(50.0f, CMC->Mass);
-		float ThrustForceN = 0.0f;
-		if (PC && PC->GetSpawnedParamotorActor() && PC->GetSpawnedParamotorActor()->IsEquipped())
-		{
-			float AirspeedMs = GetVelocity().Size() / CM_PER_M;
-			ThrustForceN = PC->GetSpawnedParamotorActor()->GetThrustForceN(AirspeedMs);
-		}
+		float ThrustForceN = GetEquippedThrustN();
 		float ThrustMoment = ThrustForceN * ThrustHeightM;
 		float RestoringMoment = PilotMassKg * GRAVITY_MS2 * FootOffsetM;
 		float NetMoment = (ThrustMoment - RestoringMoment) * TripRiskMultiplier;
@@ -851,9 +860,7 @@ void AParamotorCharacter::UpdateRotationHandling(float DeltaTime)
 		GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, -90.0f));
 
 		FQuat BaseQuat(FVector::UpVector, FMath::DegreesToRadians(-90.0f));
-		FQuat LeanQuat(FVector::RightVector, FMath::DegreesToRadians(CurrentLeanPitch));
-		FQuat FinalQuat = LeanQuat * BaseQuat;
-		GetMesh()->SetRelativeRotation(FinalQuat);
+		GetMesh()->SetRelativeRotation(BaseQuat);
 	}
 }
 
@@ -985,7 +992,8 @@ void AParamotorCharacter::Trip()
 
 	// === Trip can cause ankle injury if fast/hard ===
 	// Running trips at speed can twist an ankle
-	float TripSpeed = GetVelocity().Size2D()  / CM_PER_M;  // m/s
+	// Use LaunchVel (captured before StopMovementImmediately) not GetVelocity()
+	float TripSpeed = LaunchVel.Size2D() / CM_PER_M;  // m/s
 	ApplyImpactInjury(TripSpeed, true);
 }
 
@@ -1075,17 +1083,14 @@ void AParamotorCharacter::ApplyImpactInjury(float ImpactSpeedMs, bool bFromTrip)
 		case EInjuryType::SprainedAnkle:
 			InjuryMaxSpeedMultiplier = 0.65f;  // 65% speed — noticeable limp
 			InjuryJumpMultiplier = 0.5f;       // 50% jump height
-			bInjuryLimpActive = true;
 			break;
 		case EInjuryType::BrokenAnkle:
 			InjuryMaxSpeedMultiplier = 0.35f;  // 35% speed — severe limp
 			InjuryJumpMultiplier = 0.2f;       // Barely can hop
-			bInjuryLimpActive = true;
 			break;
 		case EInjuryType::BrokenLeg:
 			InjuryMaxSpeedMultiplier = 0.15f;  // 15% speed — can barely shuffle
 			InjuryJumpMultiplier = 0.0f;       // No jumping
-			bInjuryLimpActive = true;
 			break;
 		default:
 			break;
@@ -1118,10 +1123,10 @@ void AParamotorCharacter::HealInjury(float DeltaTime)
 
 	// Gradual healing — severity decreases over time
 	float HealRate = (1.0f / HealTime) * DeltaTime;
-	InjurySeverity -= HealRate;
+	InjurySeverity = FMath::Max(0.0f, InjurySeverity - HealRate);
 
 	// Gradually restore movement as severity decreases
-	float HealFraction = 1.0f - InjurySeverity;  // 0 = just injured, 1 = fully healed
+	float HealFraction = FMath::Clamp(1.0f - InjurySeverity, 0.0f, 1.0f);  // 0 = just injured, 1 = fully healed
 	switch (CurrentInjury)
 	{
 	case EInjuryType::SprainedAnkle:
@@ -1140,10 +1145,6 @@ void AParamotorCharacter::HealInjury(float DeltaTime)
 		break;
 	}
 
-	// Limp goes away at 80% healed
-	if (InjurySeverity < 0.2f)
-		bInjuryLimpActive = false;
-
 	// Fully healed
 	if (InjurySeverity <= 0.0f)
 	{
@@ -1151,7 +1152,6 @@ void AParamotorCharacter::HealInjury(float DeltaTime)
 		CurrentInjury = EInjuryType::None;
 		InjuryMaxSpeedMultiplier = 1.0f;
 		InjuryJumpMultiplier = 1.0f;
-		bInjuryLimpActive = false;
 		UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: Injury healed — fully recovered"));
 	}
 }
@@ -1163,7 +1163,6 @@ void AParamotorCharacter::ClearInjury()
 	InjuryHealTimer = 0.0f;
 	InjuryMaxSpeedMultiplier = 1.0f;
 	InjuryJumpMultiplier = 1.0f;
-	bInjuryLimpActive = false;
 	UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: Injury cleared"));
 }
 

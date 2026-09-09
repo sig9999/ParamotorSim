@@ -5,11 +5,11 @@
 #include "UW_FlightHUD.h"
 #include "ParamotorActor.h"
 #include "WingActor.h"
+#include "ChargerWingActor.h"
 #include "ParamotorCharacter.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Blueprint/UserWidget.h"
 #include "Kismet/GameplayStatics.h"
-#include "Engine/StaticMeshActor.h"
 #include "AudioDevice.h"
 
 AParamotorPlayerController::AParamotorPlayerController()
@@ -18,9 +18,6 @@ AParamotorPlayerController::AParamotorPlayerController()
 	PauseMenuInstance = nullptr;
 	FlightHUDInstance = nullptr;
 	SpawnedParamotorActor = nullptr;
-
-	// Available wing models (Sig brand)
-	WingModelNames = { TEXT("Sig 16"), TEXT("Sig 20"), TEXT("Sig 22"), TEXT("Sig 25"), TEXT("Sig 30"), TEXT("Sig 35"), TEXT("MacPara Charger 25M") };
 }
 
 void AParamotorPlayerController::BeginPlay()
@@ -64,8 +61,8 @@ void AParamotorPlayerController::SetupInputComponent()
 	InputComponent->BindKey(EKeys::Equals, IE_Released, this, &AParamotorPlayerController::OnTrimmerReleased);
 	InputComponent->BindKey(EKeys::Hyphen, IE_Pressed, this, &AParamotorPlayerController::OnTrimmerSlowPressed);
 	InputComponent->BindKey(EKeys::Hyphen, IE_Released, this, &AParamotorPlayerController::OnTrimmerReleased);
-	// Temporary debug keys: T = spawn wing, Y = spawn paramotor, U = connect risers
-	InputComponent->BindKey(EKeys::T, IE_Pressed, this, &AParamotorPlayerController::SpawnWing);
+	// T = spawn MacPara Charger 25M test wing (the only wing), Y = spawn paramotor
+	InputComponent->BindKey(EKeys::T, IE_Pressed, this, &AParamotorPlayerController::SpawnTestWing);
 	InputComponent->BindKey(EKeys::Y, IE_Pressed, this, &AParamotorPlayerController::SpawnParamotor);
 	InputComponent->BindKey(EKeys::L, IE_Pressed, this, &AParamotorPlayerController::OnFuelCutoff);
 	// F5 = force takeoff (debug)
@@ -78,6 +75,10 @@ void AParamotorPlayerController::SetupInputComponent()
 
 	// Left mouse button = grab/release wing (when looking at it)
 	InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AParamotorPlayerController::OnClickGrab);
+
+	// Middle mouse button = free cam (look around without moving character)
+	InputComponent->BindKey(EKeys::MiddleMouseButton, IE_Pressed, this, &AParamotorPlayerController::OnFreeCamPressed);
+	InputComponent->BindKey(EKeys::MiddleMouseButton, IE_Released, this, &AParamotorPlayerController::OnFreeCamReleased);
 }
 
 void AParamotorPlayerController::TogglePauseMenu()
@@ -107,7 +108,14 @@ void AParamotorPlayerController::TogglePauseMenu()
 
 		// Use UIOnly so the widget receives all keyboard input (including ESC to resume)
 		FInputModeUIOnly InputMode;
-		InputMode.SetWidgetToFocus(PauseMenuInstance->TakeWidget());
+		if (PauseMenuInstance)
+		{
+			TSharedPtr<SWidget> FocusWidget = PauseMenuInstance->TakeWidget();
+			if (FocusWidget.IsValid())
+			{
+				InputMode.SetWidgetToFocus(FocusWidget);
+			}
+		}
 		SetInputMode(InputMode);
 		bShowMouseCursor = true;
 	}
@@ -139,16 +147,7 @@ void AParamotorPlayerController::SpawnParamotor()
 
 	FVector Forward = MyPawn->GetActorForwardVector();
 	FVector Start = MyPawn->GetActorLocation() + Forward * 200.0f;
-	// Trace down to ground to find proper Z
-	FHitResult Hit;
-	FCollisionQueryParams QueryParams;
-	QueryParams.AddIgnoredActor(MyPawn);
-	FVector TraceEnd = Start - FVector(0, 0, 500.0f);
-	float SpawnZ = 0.0f;
-	if (GetWorld()->LineTraceSingleByChannel(Hit, Start, TraceEnd, ECC_Visibility, QueryParams))
-	{
-		SpawnZ = Hit.Location.Z;
-	}
+	float SpawnZ = FindGroundZ(Start, MyPawn);
 	FVector SpawnLoc = FVector(Start.X, Start.Y, SpawnZ);
 	FRotator SpawnRot = MyPawn->GetActorRotation();
 
@@ -222,6 +221,25 @@ void AParamotorPlayerController::OnClickGrab()
 	}
 }
 
+bool AParamotorPlayerController::GetCarabinerPositions(FVector& OutLeft, FVector& OutRight)
+{
+	if (SpawnedParamotorActor && SpawnedParamotorActor->GetCarabinerWorldPositions(OutLeft, OutRight))
+	{
+		return true;  // Real ring positions from the paramotor frame
+	}
+	// Fallback: estimate from character position (hip/harness height)
+	APawn* MyPawn = GetPawn();
+	AParamotorCharacter* Char = Cast<AParamotorCharacter>(MyPawn);
+	if (!Char) return false;
+	FVector CharPos = Char->GetActorLocation();
+	FVector CharRight = Char->GetActorRightVector();
+	float CarabHalfSpacing = CARABINER_SPACING_CM * 0.5f;
+	float HarnessHeightCm = 95.0f;  // Hip/harness height (real carabiner position)
+	OutLeft = CharPos + CharRight * -CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
+	OutRight = CharPos + CharRight * CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
+	return true;  // Estimated positions are valid for use
+}
+
 void AParamotorPlayerController::OnInteract()
 {
 	APawn* MyPawn = GetPawn();
@@ -258,12 +276,13 @@ void AParamotorPlayerController::OnInteract()
 		if (DistToParamotor < 500.0f)
 		{
 			SpawnedParamotorActor->Interact(Char);
+			// Don't return — fall through to connect risers if wing is nearby
 		}
 		else
 		{
 			UE_LOG(LogTemp, Log, TEXT("Get closer to the paramotor to equip it (%.0f cm away)"), DistToParamotor);
+			return;
 		}
-		return;
 	}
 
 	// 4. Connect risers to spread wing (when paramotor is equipped)
@@ -275,19 +294,7 @@ void AParamotorPlayerController::OnInteract()
 		{
 			// Get carabiner positions from the paramotor's wing clip rings
 			FVector LeftCarabiner, RightCarabiner;
-			if (SpawnedParamotorActor->GetCarabinerWorldPositions(LeftCarabiner, RightCarabiner))
-			{
-				// Use real ring positions from the paramotor frame
-			}
-			else
-			{
-				// Fallback: estimate from character position (hip/harness height)
-				FVector CharRight = Char->GetActorRightVector();
-				float CarabHalfSpacing = CARABINER_SPACING_CM * 0.5f;
-				float HarnessHeightCm = 95.0f;  // Hip/harness height (real carabiner position)
-				LeftCarabiner = PlayerPos + CharRight * -CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
-				RightCarabiner = PlayerPos + CharRight * CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
-			}
+			GetCarabinerPositions(LeftCarabiner, RightCarabiner);
 
 			SpawnedWingActor->ConnectRisers(SpawnedParamotorActor, LeftCarabiner, RightCarabiner);
 
@@ -363,7 +370,6 @@ void AParamotorPlayerController::OnThrottleDownReleased()
 // ============================================================
 void AParamotorPlayerController::OnTrimmerFastPressed()
 {
-	bTrimmerFastHeld = true;
 	if (SpawnedWingActor)
 	{
 		// Move trimmer target toward full fast (+1.0)
@@ -375,7 +381,6 @@ void AParamotorPlayerController::OnTrimmerFastPressed()
 
 void AParamotorPlayerController::OnTrimmerSlowPressed()
 {
-	bTrimmerSlowHeld = true;
 	if (SpawnedWingActor)
 	{
 		// Move trimmer target toward full slow (-1.0)
@@ -387,14 +392,11 @@ void AParamotorPlayerController::OnTrimmerSlowPressed()
 
 void AParamotorPlayerController::OnTrimmerReleased()
 {
-	bTrimmerFastHeld = false;
-	bTrimmerSlowHeld = false;
 }
 
 void AParamotorPlayerController::OnLeftBrakePressed()
 {
 	bLeftBrakeHeld = true;
-	if (SpawnedWingActor) SpawnedWingActor->PumpBrakes();
 }
 
 void AParamotorPlayerController::OnLeftBrakeReleased()
@@ -405,7 +407,6 @@ void AParamotorPlayerController::OnLeftBrakeReleased()
 void AParamotorPlayerController::OnRightBrakePressed()
 {
 	bRightBrakeHeld = true;
-	if (SpawnedWingActor) SpawnedWingActor->PumpBrakes();
 }
 
 void AParamotorPlayerController::OnRightBrakeReleased()
@@ -477,6 +478,30 @@ void AParamotorPlayerController::OnHangPointForward()
 	}
 }
 
+void AParamotorPlayerController::OnFreeCamPressed()
+{
+	bFreeCamActive = true;
+	// Disable character movement input while in free cam
+	if (APawn* MyPawn = GetPawn())
+	{
+		MyPawn->DisableInput(this);
+	}
+	SetInputMode(FInputModeGameOnly());
+	UE_LOG(LogTemp, Log, TEXT("Free cam activated"));
+}
+
+void AParamotorPlayerController::OnFreeCamReleased()
+{
+	bFreeCamActive = false;
+	// Re-enable character movement input
+	if (APawn* MyPawn = GetPawn())
+	{
+		MyPawn->EnableInput(this);
+	}
+	SetInputMode(FInputModeGameOnly());
+	UE_LOG(LogTemp, Log, TEXT("Free cam deactivated"));
+}
+
 void AParamotorPlayerController::UpdateRotation(float DeltaTime)
 {
 	// During flight, the WingActor controls the pawn's full rotation (bank, pitch, yaw).
@@ -505,6 +530,18 @@ void AParamotorPlayerController::UpdateRotation(float DeltaTime)
 		}
 	}
 
+	// Free cam mode: update control rotation (camera look) but don't rotate the pawn
+	if (bFreeCamActive)
+	{
+		if (APawn* FreeCamPawn = GetPawn())
+		{
+			FRotator SavedPawnRot = FreeCamPawn->GetActorRotation();
+			Super::UpdateRotation(DeltaTime);  // Updates control rotation + camera
+			FreeCamPawn->SetActorRotation(SavedPawnRot);  // But keep pawn facing same direction
+		}
+		return;
+	}
+
 	// Ground mode: normal controller rotation behavior
 	Super::UpdateRotation(DeltaTime);
 }
@@ -515,319 +552,191 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 
 	APawn* CachedPawn = GetPawn();
 
-	// Process throttle input when engine is running or cranking
-	if (SpawnedParamotorActor)
-	{
-		EEngineState State = SpawnedParamotorActor->GetEngineState();
-		if (State == EEngineState::Running || State == EEngineState::Cranking)
-		{
-			float CurrentThrottle = SpawnedParamotorActor->GetThrottle();
+	UpdateThrottle(DeltaTime);
+	UpdateGrabPosition(CachedPawn);
+	UpdateWingRig(DeltaTime, CachedPawn);
+}
 
-			// Throttle trigger speed: real Moster 185 trigger moves full travel in ~0.3s
+// ============================================================
+// Tick helpers
+// ============================================================
+void AParamotorPlayerController::UpdateThrottle(float DeltaTime)
+{
+	if (!SpawnedParamotorActor) return;
+
+	EEngineState State = SpawnedParamotorActor->GetEngineState();
+	if (State == EEngineState::Running || State == EEngineState::Cranking)
+	{
+		float CurrentThrottle = SpawnedParamotorActor->GetThrottle();
+
+		// Throttle trigger speed: real Moster 185 trigger moves full travel in ~0.3s
 		// Rate = 1/0.3 ≈ 3.3/s (spring-return trigger with finger force)
 		const float ThrottleRate = 3.3f;
 		// Spring return rate: real throttle spring returns to idle in ~2s → 0.5/s
 		const float ThrottleReturnRate = 0.5f;
-			if (bThrottleUpHeld)
-			{
-				CurrentThrottle += ThrottleRate * DeltaTime;
-			}
-			if (bThrottleDownHeld)
-			{
-				CurrentThrottle -= ThrottleRate * DeltaTime;
-			}
-			// Auto-return to idle: when neither key is held, throttle slowly
-			// drifts back to 0 (like releasing the throttle trigger on a real paramotor)
-			if (!bThrottleUpHeld && !bThrottleDownHeld && CurrentThrottle > 0.0f)
-			{
-				CurrentThrottle -= ThrottleReturnRate * DeltaTime;  // Spring return to idle
-			}
-
-			SpawnedParamotorActor->SetThrottle(CurrentThrottle);
-		}
-
-		// Pass thrust info to character for trip/fall logic
-		APawn* MyPawn = CachedPawn;
-		AParamotorCharacter* Char = Cast<AParamotorCharacter>(MyPawn);
-		if (Char && SpawnedParamotorActor->IsEquipped())
+		if (bThrottleUpHeld)
 		{
-			float Thrust = 0.0f;
-			if (State == EEngineState::Running)
-			{
-				Thrust = SpawnedParamotorActor->GetThrottle();
-			}
-			Char->SetThrust(Thrust);
+			CurrentThrottle += ThrottleRate * DeltaTime;
 		}
+		if (bThrottleDownHeld)
+		{
+			CurrentThrottle -= ThrottleRate * DeltaTime;
+		}
+		// Auto-return to idle: when neither key is held, throttle slowly
+		// drifts back to 0 (like releasing the throttle trigger on a real paramotor)
+		if (!bThrottleUpHeld && !bThrottleDownHeld && CurrentThrottle > 0.0f)
+		{
+			CurrentThrottle -= ThrottleReturnRate * DeltaTime;  // Spring return to idle
+		}
+
+		SpawnedParamotorActor->SetThrottle(CurrentThrottle);
 	}
 
-	// Update wing brake state (only when inflated)
-	// Brake controls are handled below via Q/E keys and progressive ramping.
-
-	// Update grab position while grabbing — follows the crosshair aim point
-	if (SpawnedWingActor && SpawnedWingActor->IsGrabbing())
+	// Pass thrust info to character for trip/fall logic
+	AParamotorCharacter* Char = Cast<AParamotorCharacter>(GetPawn());
+	if (Char && SpawnedParamotorActor->IsEquipped())
 	{
-		FVector CamLoc;
-		FRotator CamRot;
-		GetPlayerViewPoint(CamLoc, CamRot);
-		// Grab point = where the crosshair points, but limited to player's reach
-		FVector TraceEnd = CamLoc + CamRot.Vector() * 300.0f;  // 3m reach
-
-		// If trace hits something, use that point
-		FHitResult Hit;
-		FCollisionQueryParams QueryParams;
-		APawn* MyPawn = CachedPawn;
-		if (MyPawn) QueryParams.AddIgnoredActor(MyPawn);
-		if (GetWorld()->LineTraceSingleByChannel(Hit, CamLoc, TraceEnd, ECC_Visibility, QueryParams))
+		float Thrust = 0.0f;
+		if (State == EEngineState::Running)
 		{
-			SpawnedWingActor->UpdateGrabPosition(Hit.Location);
+			Thrust = SpawnedParamotorActor->GetThrottle();
 		}
-		else
-		{
-			SpawnedWingActor->UpdateGrabPosition(TraceEnd);
-		}
+		Char->SetThrust(Thrust);
 	}
+}
 
-	// Update carabiner positions while risers are connected
-	if (SpawnedWingActor && SpawnedWingActor->IsConnected() && SpawnedParamotorActor)
+void AParamotorPlayerController::UpdateGrabPosition(APawn* CachedPawn)
+{
+	if (!SpawnedWingActor || !SpawnedWingActor->IsGrabbing()) return;
+
+	FVector CamLoc;
+	FRotator CamRot;
+	GetPlayerViewPoint(CamLoc, CamRot);
+	// Grab point = where the crosshair points, but limited to player's reach
+	FVector TraceEnd = CamLoc + CamRot.Vector() * 300.0f;  // 3m reach
+
+	// If trace hits something, use that point
+	FHitResult Hit;
+	FCollisionQueryParams QueryParams;
+	if (CachedPawn) QueryParams.AddIgnoredActor(CachedPawn);
+	if (GetWorld()->LineTraceSingleByChannel(Hit, CamLoc, TraceEnd, ECC_Visibility, QueryParams))
 	{
-		APawn* MyPawn3 = CachedPawn;
-		AParamotorCharacter* Char3 = Cast<AParamotorCharacter>(MyPawn3);
-		if (Char3)
-		{
-			// Get actual carabiner positions from the paramotor's wing clip rings
-			FVector LeftCarabiner, RightCarabiner;
-			if (SpawnedParamotorActor->GetCarabinerWorldPositions(LeftCarabiner, RightCarabiner))
-			{
-				// Use real ring positions from the paramotor frame
-				SpawnedWingActor->UpdateCarabinerPositions(LeftCarabiner, RightCarabiner);
-			}
-			else
-			{
-				// Fallback: estimate from character position (hip height, not chest)
-				FVector CharPos = Char3->GetActorLocation();
-				FVector CharRight = Char3->GetActorRightVector();
-				float CarabHalfSpacing = CARABINER_SPACING_CM * 0.5f;
-				float HarnessHeightCm = 95.0f;  // Hip/harness height (real carabiner position)
-				LeftCarabiner = CharPos + CharRight * -CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
-				RightCarabiner = CharPos + CharRight * CarabHalfSpacing + FVector(0, 0, HarnessHeightCm);
-				SpawnedWingActor->UpdateCarabinerPositions(LeftCarabiner, RightCarabiner);
-			}
-
-			// Send brake input to wing — PROGRESSIVE (ramp up/down like real brake handles)
-			// Q = pilot's left hand = left brake, E = pilot's right hand = right brake
-			// Real brakes: pull takes ~0.5s to reach full, release takes ~0.3s
-			float BrakePullSpeed = 2.0f;   // Hand-limited pull rate (0.5s full travel)
-			float BrakeReleaseSpeed = 3.3f; // Spring-return release (0.3s)
-			if (bLeftBrakeHeld)
-				LeftBrakeAmount = FMath::Min(1.0f, LeftBrakeAmount + DeltaTime * BrakePullSpeed);
-			else
-				LeftBrakeAmount = FMath::Max(0.0f, LeftBrakeAmount - DeltaTime * BrakeReleaseSpeed);
-			if (bRightBrakeHeld)
-				RightBrakeAmount = FMath::Min(1.0f, RightBrakeAmount + DeltaTime * BrakePullSpeed);
-			else
-				RightBrakeAmount = FMath::Max(0.0f, RightBrakeAmount - DeltaTime * BrakeReleaseSpeed);
-
-			SpawnedWingActor->SetLeftBrake(LeftBrakeAmount);
-			SpawnedWingActor->SetRightBrake(RightBrakeAmount);
-
-			// Send throttle and velocity for flight physics
-			SpawnedWingActor->SetThrottle(SpawnedParamotorActor ? SpawnedParamotorActor->GetThrottle() : 0.0f);
-
-			// Set weight shift active when flying (mouse look = weight shift, not yaw)
-			Char3->bWeightShiftActive = SpawnedWingActor->IsFlying();
-
-			// Pass weight shift to wing for riser lowering + turn initiation
-			SpawnedWingActor->SetWeightShift(Char3->WeightShift);
-
-			// Set character arm IK targets to brake handle positions
-			// The wing's internal "left/right" labels are in wing-local space and may not
-			// match the pilot's left/right due to the wing's yaw rotation.
-			// Determine which handle is actually on the pilot's left vs right using world-space.
-			FVector CharPos = Char3->GetActorLocation();
-			FVector WingLeftPos = SpawnedWingActor->GetLeftBrakeHandleWorldPos();
-			FVector WingRightPos = SpawnedWingActor->GetRightBrakeHandleWorldPos();
-
-			// Project both handle positions onto the pilot's right vector
-			FVector PilotRight = Char3->GetActorRightVector();
-			FVector ToLeftHandle = WingLeftPos - CharPos;
-			FVector ToRightHandle = WingRightPos - CharPos;
-			float LeftDot = FVector::DotProduct(ToLeftHandle, PilotRight);
-			float RightDot = FVector::DotProduct(ToRightHandle, PilotRight);
-
-			// The handle with negative dot product is on the pilot's left,
-			// the one with positive dot product is on the pilot's right.
-			FVector PilotLeftTarget, PilotRightTarget;
-			if (LeftDot <= RightDot)
-			{
-				PilotLeftTarget = WingLeftPos;   // Wing-left is pilot-left
-				PilotRightTarget = WingRightPos; // Wing-right is pilot-right
-			}
-			else
-			{
-				PilotLeftTarget = WingRightPos;  // Wing-right is pilot-left (wing flipped)
-				PilotRightTarget = WingLeftPos;  // Wing-left is pilot-right
-			}
-
-			Char3->SetBrakeArmTargets(true, true, PilotLeftTarget, PilotRightTarget, bLeftBrakeHeld, bRightBrakeHeld);
-
-			// Debug log for IK target verification
-			IKLogTimer += DeltaTime;
-			if (IKLogTimer > 1.0f)
-			{
-				IKLogTimer = 0.0f;
-				UE_LOG(LogTemp, Warning, TEXT("IK: CharPos=%s L_Target=%s R_Target=%s LeftDot=%.0f RightDot=%.0f"),
-					*CharPos.ToString(), *PilotLeftTarget.ToString(), *PilotRightTarget.ToString(),
-					LeftDot, RightDot);
-			}
-		}
+		SpawnedWingActor->UpdateGrabPosition(Hit.Location);
 	}
 	else
 	{
-		// Clear arm IK when not connected
-		AParamotorCharacter* Char4 = CachedPawn ? Cast<AParamotorCharacter>(CachedPawn) : nullptr;
-		if (Char4) Char4->ClearBrakeArmTargets();
+		SpawnedWingActor->UpdateGrabPosition(TraceEnd);
 	}
 }
 
-void AParamotorPlayerController::ApplyWingModel(AWingActor* Wing, int32 ModelIndex)
+void AParamotorPlayerController::ComputeBrakeArmTargets(AParamotorCharacter* Char, AWingActor* Wing,
+	FVector& OutPilotLeftTarget, FVector& OutPilotRightTarget)
 {
-	if (!Wing) return;
-	switch (ModelIndex)
+	// The wing's internal "left/right" labels are in wing-local space and may not
+	// match the pilot's left/right due to the wing's yaw rotation.
+	// Determine which handle is actually on the pilot's left vs right using world-space.
+	FVector CharPos = Char->GetActorLocation();
+	FVector WingLeftPos = Wing->GetLeftBrakeHandleWorldPos();
+	FVector WingRightPos = Wing->GetRightBrakeHandleWorldPos();
+
+	// Project both handle positions onto the pilot's right vector
+	FVector PilotRight = Char->GetActorRightVector();
+	FVector ToLeftHandle = WingLeftPos - CharPos;
+	FVector ToRightHandle = WingRightPos - CharPos;
+	float LeftDot = FVector::DotProduct(ToLeftHandle, PilotRight);
+	float RightDot = FVector::DotProduct(ToRightHandle, PilotRight);
+
+	// The handle with negative dot product is on the pilot's left,
+	// the one with positive dot product is on the pilot's right.
+	if (LeftDot <= RightDot)
 	{
-	case 0:  // Sig 16 — 16m², super small practice wing (kiting only)
-		// Tiny wing for ground handling practice. Extremely high wing loading.
-		// Will only fly in rare circumstances: strong wind, downhill run, full throttle.
-		// Very fast, very twitchy, stalls easily — NOT for normal flight.
-		Wing->WingModel.Name = TEXT("Sig 16");
-		Wing->WingModel.WingArea = 16.0f;
-		Wing->WingModel.MaxTakeoffWeight = 85.0f;
-		Wing->WingModel.WingWeight = 4.5f;
-		Wing->WingModel.CL0 = 0.45f;     // Realistic cambered airfoil CL0
-		Wing->WingModel.CLMax = 1.4f;    // Realistic max lift for small wing
-		Wing->WingModel.CD0 = 0.040f;    // Higher drag (small chord, low Re)
-		Wing->WingModel.AR = 5.8f;       // Higher aspect ratio (long thin wing)
-		Wing->WingModel.StallAoA = 13.0f; // Stalls earlier — twitchy
-
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
-		break;
-	case 1:  // Sig 20 — 20m², max 110kg (light pilot)
-		Wing->WingModel.Name = TEXT("Sig 20");
-		Wing->WingModel.WingArea = 20.0f;
-		Wing->WingModel.MaxTakeoffWeight = 110.0f;
-		Wing->WingModel.WingWeight = 5.5f;
-		Wing->WingModel.CL0 = 0.48f;
-		Wing->WingModel.CLMax = 1.5f;
-		Wing->WingModel.CD0 = 0.036f;
-		Wing->WingModel.AR = 5.2f;
-		Wing->WingModel.StallAoA = 15.0f;
-
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
-		break;
-	case 2:  // Sig 22 — 22m², max 120kg (light-to-medium pilot)
-		Wing->WingModel.Name = TEXT("Sig 22");
-		Wing->WingModel.WingArea = 22.0f;
-		Wing->WingModel.MaxTakeoffWeight = 120.0f;
-		Wing->WingModel.WingWeight = 5.8f;
-		Wing->WingModel.CL0 = 0.49f;
-		Wing->WingModel.CLMax = 1.5f;
-		Wing->WingModel.CD0 = 0.036f;
-		Wing->WingModel.AR = 5.1f;
-		Wing->WingModel.StallAoA = 15.0f;
-
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
-		break;
-	case 3:  // Sig 25 — 25m², max 130kg (standard)
-		// Realistic EN-A beginner wing values:
-		// CL0=0.50, CLMax=1.5, CD0=0.037, AR=5.0
-		// At trim (10.5 m/s, 116kg): CL≈0.67, L/D≈8.2 with motor+lines+pilot drag
-		Wing->WingModel.Name = TEXT("Sig 25");
-		Wing->WingModel.WingArea = 25.0f;
-		Wing->WingModel.MaxTakeoffWeight = 130.0f;
-		Wing->WingModel.WingWeight = 6.0f;
-		Wing->WingModel.CL0 = 0.50f;
-		Wing->WingModel.CLMax = 1.5f;
-		Wing->WingModel.CD0 = 0.037f;
-		Wing->WingModel.AR = 5.0f;
-		Wing->WingModel.StallAoA = 15.0f;
-
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
-		break;
-	case 4:  // Sig 30 — 30m², max 160kg (heavy pilot / tandem)
-		Wing->WingModel.Name = TEXT("Sig 30");
-		Wing->WingModel.WingArea = 30.0f;
-		Wing->WingModel.MaxTakeoffWeight = 160.0f;
-		Wing->WingModel.WingWeight = 7.0f;
-		Wing->WingModel.CL0 = 0.52f;
-		Wing->WingModel.CLMax = 1.55f;
-		Wing->WingModel.CD0 = 0.038f;
-		Wing->WingModel.AR = 4.5f;
-		Wing->WingModel.StallAoA = 16.0f;
-
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
-		break;
-	case 5:  // Sig 35 — 35m², max 180kg (tandem / very heavy)
-		Wing->WingModel.Name = TEXT("Sig 35");
-		Wing->WingModel.WingArea = 35.0f;
-		Wing->WingModel.MaxTakeoffWeight = 180.0f;
-		Wing->WingModel.WingWeight = 8.0f;
-		Wing->WingModel.CL0 = 0.55f;
-		Wing->WingModel.CLMax = 1.6f;
-		Wing->WingModel.CD0 = 0.040f;
-		Wing->WingModel.AR = 4.2f;
-		Wing->WingModel.StallAoA = 16.0f;
-
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
-		break;
-	case 6:  // MacPara Charger 25M — real reflex paramotor wing (DGAC)
-		// Real specs from MacPara Charger 1 user manual (page 39):
-		//   Zoom: 95.3% (of size 28 reference)
-		//   Area flat: 25.43 m², Area projected: 22.83 m²
-		//   Span flat: 11.44 m, Root chord: 2.71 m
-		//   Aspect ratio flat: 5.14, Cells: 46
-		//   Weight: 5.6 kg
-		//   Weight range free flight: 75-95 kg
-		//   Weight range PPG/MPG: 100-137 kg
-		//   Min speed: 24-26 km/h, Max speed: 47-50 km/h
-		//   Top speed (accelerator): 55-60 km/h
-		//   Glide ratio: 8.9, Min sink rate: 1.1 m/s
-		//   Reflex airfoil — resistant to collapse, stable at speed
-		//   DGAC certified paramotor wing
-		//   5 risers (A, A1, B, C, D) with trimmers + speed system
-		//   Wing tip steering handles (WTST)
-		Wing->WingModel.Name = TEXT("MacPara Charger 25M");
-		Wing->WingModel.WingArea = 25.43f;
-		Wing->WingModel.MaxTakeoffWeight = 137.0f;  // Real PPG max
-		Wing->WingModel.WingWeight = 5.6f;
-		Wing->WingModel.CL0 = 0.50f;     // Reflex airfoil — slightly lower CL0
-		Wing->WingModel.CLMax = 1.45f;   // Reflex wings have lower CLMax (stable)
-		Wing->WingModel.CD0 = 0.035f;    // Clean reflex profile
-		Wing->WingModel.AR = 5.14f;      // Real Charger aspect ratio
-		Wing->WingModel.StallAoA = 16.0f; // Reflex stalls later
-
-		Wing->WingModel.TrimAoA = 1.5f;  // Reflex wing trims at lower AoA
-		break;
-	default:
-		Wing->WingModel.Name = TEXT("Sig 25");
-		Wing->WingModel.WingArea = 25.0f;
-		Wing->WingModel.MaxTakeoffWeight = 130.0f;
-		Wing->WingModel.WingWeight = 6.0f;
-		Wing->WingModel.CL0 = 0.50f;
-		Wing->WingModel.CLMax = 1.5f;
-		Wing->WingModel.CD0 = 0.037f;
-		Wing->WingModel.AR = 5.0f;
-		Wing->WingModel.StallAoA = 15.0f;
-
-		Wing->WingModel.TrimAoA = 2.0f;  // Default trim AoA
-		break;
+		OutPilotLeftTarget = WingLeftPos;   // Wing-left is pilot-left
+		OutPilotRightTarget = WingRightPos; // Wing-right is pilot-right
+	}
+	else
+	{
+		OutPilotLeftTarget = WingRightPos;  // Wing-right is pilot-left (wing flipped)
+		OutPilotRightTarget = WingLeftPos;  // Wing-left is pilot-right
 	}
 }
 
-void AParamotorPlayerController::SpawnWing()
+void AParamotorPlayerController::UpdateWingRig(float DeltaTime, APawn* CachedPawn)
 {
-	SpawnWingByModel(CurrentWingModelIndex);
+	if (!SpawnedWingActor || !SpawnedWingActor->IsConnected() || !SpawnedParamotorActor)
+	{
+		// Clear arm IK when not connected
+		AParamotorCharacter* Char = CachedPawn ? Cast<AParamotorCharacter>(CachedPawn) : nullptr;
+		if (Char) Char->ClearBrakeArmTargets();
+		return;
+	}
+
+	AParamotorCharacter* Char = Cast<AParamotorCharacter>(CachedPawn);
+	if (!Char) return;
+
+	// Update carabiner positions from paramotor hardware
+	FVector LeftCarabiner, RightCarabiner;
+	GetCarabinerPositions(LeftCarabiner, RightCarabiner);
+	SpawnedWingActor->UpdateCarabinerPositions(LeftCarabiner, RightCarabiner);
+
+	// Send brake input to wing — PROGRESSIVE (ramp up/down like real brake handles)
+	// Q = pilot's left hand = left brake, E = pilot's right hand = right brake
+	// Real brakes: pull takes ~0.5s to reach full, release takes ~0.3s
+	float BrakePullSpeed = 2.0f;   // Hand-limited pull rate (0.5s full travel)
+	float BrakeReleaseSpeed = 3.3f; // Spring-return release (0.3s)
+	if (bLeftBrakeHeld)
+		LeftBrakeAmount = FMath::Min(1.0f, LeftBrakeAmount + DeltaTime * BrakePullSpeed);
+	else
+		LeftBrakeAmount = FMath::Max(0.0f, LeftBrakeAmount - DeltaTime * BrakeReleaseSpeed);
+	if (bRightBrakeHeld)
+		RightBrakeAmount = FMath::Min(1.0f, RightBrakeAmount + DeltaTime * BrakePullSpeed);
+	else
+		RightBrakeAmount = FMath::Max(0.0f, RightBrakeAmount - DeltaTime * BrakeReleaseSpeed);
+
+	SpawnedWingActor->SetLeftBrake(LeftBrakeAmount);
+	SpawnedWingActor->SetRightBrake(RightBrakeAmount);
+
+	// Send throttle and velocity for flight physics
+	SpawnedWingActor->SetThrottle(SpawnedParamotorActor ? SpawnedParamotorActor->GetThrottle() : 0.0f);
+
+	// Set weight shift active when flying (mouse look = weight shift, not yaw)
+	Char->bWeightShiftActive = SpawnedWingActor->IsFlying();
+
+	// Pass weight shift to wing for riser lowering + turn initiation
+	SpawnedWingActor->SetWeightShift(Char->WeightShift);
+
+	// Set character arm IK targets to brake handle positions
+	FVector PilotLeftTarget, PilotRightTarget;
+	ComputeBrakeArmTargets(Char, SpawnedWingActor, PilotLeftTarget, PilotRightTarget);
+	Char->SetBrakeArmTargets(true, true, PilotLeftTarget, PilotRightTarget, bLeftBrakeHeld, bRightBrakeHeld);
+
+	// Debug log for IK target verification
+	IKLogTimer += DeltaTime;
+	if (IKLogTimer > 1.0f)
+	{
+		IKLogTimer = 0.0f;
+		FVector CharPos = Char->GetActorLocation();
+		UE_LOG(LogTemp, Warning, TEXT("IK: CharPos=%s L_Target=%s R_Target=%s"),
+			*CharPos.ToString(), *PilotLeftTarget.ToString(), *PilotRightTarget.ToString());
+	}
 }
 
-void AParamotorPlayerController::SpawnWingByModel(int32 ModelIndex)
+// ============================================================
+// Spawn helpers
+// ============================================================
+float AParamotorPlayerController::FindGroundZ(FVector Start, APawn* IgnorePawn)
+{
+	FHitResult Hit;
+	FCollisionQueryParams QueryParams;
+	if (IgnorePawn) QueryParams.AddIgnoredActor(IgnorePawn);
+	FVector TraceEnd = Start - FVector(0, 0, 500.0f);
+	if (GetWorld()->LineTraceSingleByChannel(Hit, Start, TraceEnd, ECC_Visibility, QueryParams))
+	{
+		return Hit.Location.Z;
+	}
+	return 0.0f;
+}
+
+void AParamotorPlayerController::SpawnTestWing()
 {
 	APawn* MyPawn = GetPawn();
 	if (!MyPawn) return;
@@ -842,41 +751,103 @@ void AParamotorPlayerController::SpawnWingByModel(int32 ModelIndex)
 
 	FVector Forward = MyPawn->GetActorForwardVector();
 	FVector Backward = -Forward;
+	FVector Start = MyPawn->GetActorLocation() + Backward * 500.0f;
 
-	float ChordCenter = 145.0f;
-	// Lay out wing ~5m behind pilot (realistic layout distance)
-	// Line length is 7m, so wing must be within line length when connected
-	FVector Start = MyPawn->GetActorLocation() + Backward * (ChordCenter + 350.0f);
-
-	FHitResult Hit;
-	FCollisionQueryParams QueryParams;
-	QueryParams.AddIgnoredActor(MyPawn);
-	FVector TraceEnd = Start - FVector(0, 0, 500.0f);
-	float SpawnZ = 0.0f;
-	if (GetWorld()->LineTraceSingleByChannel(Hit, Start, TraceEnd, ECC_Visibility, QueryParams))
-	{
-		SpawnZ = Hit.Location.Z + 5.0f;
-	}
+	float SpawnZ = FindGroundZ(Start, MyPawn) + 5.0f;
 	FVector SpawnLoc = FVector(Start.X, Start.Y, SpawnZ);
-
-	FRotator SpawnRot = FRotator(0.0f, MyPawn->GetActorRotation().Yaw + 180.0f, 0.0f);
+	FRotator SpawnRot = FRotator(0.0f, MyPawn->GetActorRotation().Yaw, 0.0f);
 
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	SpawnedWingActor = GetWorld()->SpawnActor<AWingActor>(SpawnLoc, SpawnRot, SpawnParams);
+	// Use deferred spawn so we can set wing model before BeginPlay runs
+	FTransform SpawnTransform(SpawnRot, SpawnLoc);
+	SpawnedWingActor = GetWorld()->SpawnActorDeferred<AWingActor>(AChargerWingActor::StaticClass(), SpawnTransform, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
 	if (SpawnedWingActor)
 	{
-		// Apply selected wing model
-		CurrentWingModelIndex = FMath::Clamp(ModelIndex, 0, FMath::Max(0, WingModelNames.Num() - 1));
-		ApplyWingModel(SpawnedWingActor, CurrentWingModelIndex);
+		// Apply MacPara Charger 25M specs BEFORE FinishSpawning (BeginPlay reads these)
+		SpawnedWingActor->WingModel.Name = TEXT("MacPara Charger 25M");
+		SpawnedWingActor->WingModel.WingArea = 25.43f;
+		SpawnedWingActor->WingModel.MaxTakeoffWeight = 137.0f;
+		SpawnedWingActor->WingModel.WingWeight = 5.6f;
+		SpawnedWingActor->WingModel.CL0 = 0.50f;
+		SpawnedWingActor->WingModel.CLMax = 1.45f;
+		SpawnedWingActor->WingModel.CD0 = 0.035f;
+		SpawnedWingActor->WingModel.AR = 5.14f;
+		SpawnedWingActor->WingModel.StallAoA = 16.0f;
+		SpawnedWingActor->WingModel.TrimAoA = 1.5f;
+
+		SpawnedWingActor->FinishSpawning(SpawnTransform);
 
 		SpawnedActors.Add(SpawnedWingActor);
-		UE_LOG(LogTemp, Warning, TEXT("Spawned %s wing (%.1f m², max %.0f kg) at %s"),
-			*SpawnedWingActor->WingModel.Name,
-			SpawnedWingActor->WingModel.WingArea,
-			SpawnedWingActor->WingModel.MaxTakeoffWeight,
-			*SpawnLoc.ToString());
+		UE_LOG(LogTemp, Warning, TEXT("Spawned fresh Charger 1 25 (ChargerDynamics) at %s"), *SpawnLoc.ToString());
+	}
+}
+
+void AParamotorPlayerController::SpawnTestParamotor()
+{
+	APawn* MyPawn = GetPawn();
+	if (!MyPawn) return;
+
+	// If paramotor already exists, destroy it first
+	if (SpawnedParamotorActor)
+	{
+		SpawnedActors.Remove(SpawnedParamotorActor);
+		SpawnedParamotorActor->Destroy();
+		SpawnedParamotorActor = nullptr;
+	}
+
+	FVector Forward = MyPawn->GetActorForwardVector();
+	FVector Start = MyPawn->GetActorLocation() + Forward * 200.0f;
+
+	float SpawnZ = FindGroundZ(Start, MyPawn);
+	FVector SpawnLoc = FVector(Start.X, Start.Y, SpawnZ);
+	FRotator SpawnRot = MyPawn->GetActorRotation();
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	// Use deferred spawn so we can set bUseTestFrame before BeginPlay runs
+	FTransform SpawnTransformP(SpawnRot, SpawnLoc);
+	SpawnedParamotorActor = GetWorld()->SpawnActorDeferred<AParamotorActor>(AParamotorActor::StaticClass(), SpawnTransformP, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (SpawnedParamotorActor)
+	{
+		SpawnedParamotorActor->bUseTestFrame = true;
+		SpawnedParamotorActor->FinishSpawning(SpawnTransformP);
+		SpawnedActors.Add(SpawnedParamotorActor);
+		UE_LOG(LogTemp, Warning, TEXT("Spawned Test Paramotor (ParamotorTestFrame) at %s"), *SpawnLoc.ToString());
+	}
+}
+
+void AParamotorPlayerController::SpawnRider185()
+{
+	APawn* MyPawn = GetPawn();
+	if (!MyPawn) return;
+
+	// Clear any old spawned equipment first
+	ClearSpawnedActors();
+	SpawnedParamotorActor = nullptr;
+
+	FVector Forward = MyPawn->GetActorForwardVector();
+	FVector Start = MyPawn->GetActorLocation() + Forward * 250.0f;
+
+	float SpawnZ = FindGroundZ(Start, MyPawn);
+	FVector SpawnLoc = FVector(Start.X, Start.Y, SpawnZ);
+	
+	// Rider model faces -X in Blender, so add 180 deg to face the same way as the player
+	FRotator SpawnRot = MyPawn->GetActorRotation() + FRotator(0.0f, 180.0f, 0.0f);
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	FTransform SpawnTransformR(SpawnRot, SpawnLoc);
+	SpawnedParamotorActor = GetWorld()->SpawnActorDeferred<AParamotorActor>(AParamotorActor::StaticClass(), SpawnTransformR, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (SpawnedParamotorActor)
+	{
+		SpawnedParamotorActor->bUseRider185 = true;
+		SpawnedParamotorActor->FinishSpawning(SpawnTransformR);
+		SpawnedActors.Add(SpawnedParamotorActor);
+		UE_LOG(LogTemp, Warning, TEXT("Spawned Rider Moster 185 at %s"), *SpawnLoc.ToString());
 	}
 }
 

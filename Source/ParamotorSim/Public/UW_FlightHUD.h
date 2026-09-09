@@ -8,9 +8,16 @@ class UTextBlock;
 class UBorder;
 class UCanvasPanel;
 class UVerticalBox;
+class UVerticalBoxSlot;
 class UHorizontalBox;
-class UImage;
 class UProgressBar;
+class UWidget;
+class APlayerController;
+class AParamotorPlayerController;
+class AParamotorActor;
+class AWingActor;
+class APawn;
+class AParamotorCharacter;
 
 UCLASS()
 class PARAMOTORSIM_API UUW_FlightHUD : public UUserWidget
@@ -25,9 +32,9 @@ protected:
 	// Compass
 	UPROPERTY() UTextBlock* CompassText = nullptr;
 	UPROPERTY() UTextBlock* HeadingText = nullptr;
-	UPROPERTY() UImage* HeadingIndicator = nullptr;
-	UPROPERTY() UImage* WindIndicator = nullptr;
 	UPROPERTY() UTextBlock* WindInfoText = nullptr;
+	UPROPERTY() UTextBlock* ConditionsText = nullptr;   // Flyability + OD risk
+	UPROPERTY() UTextBlock* CloudbaseText = nullptr;    // Cloudbase altitude
 
 	// Stats
 	UPROPERTY() UTextBlock* AltitudeValue = nullptr;
@@ -71,4 +78,47 @@ protected:
 	// Instruction text (context-sensitive on-screen guidance)
 	UPROPERTY() UTextBlock* InstructionText = nullptr;
 	UPROPERTY() UBorder* InstructionPanel = nullptr;
+
+	// ============================================================
+	// UI construction helpers (extracted from NativeOnInitialized lambdas)
+	// ============================================================
+	UTextBlock* MakeText(const FString& Name, const FString& Text, int32 Size, FSlateColor Color);
+	UVerticalBoxSlot* AddToVBox(UVerticalBox* VBox, UWidget* Widget, float PadBottom = 0.0f);
+	UBorder* MakePanel(const FString& Name);
+	UTextBlock* MakeHeader(const FString& Name, const FString& Label);
+	void AddStatRow(UVerticalBox* Parent, const FString& Label, UTextBlock*& ValuePtr, int32 ValSize = 15);
+	void AddSeparator(UVerticalBox* Parent);
+	void AddGaugeRow(UVerticalBox* Parent, const FString& Label, UTextBlock*& ValuePtr, UProgressBar*& BarPtr, FLinearColor BarColor);
+
+	// ============================================================
+	// UI builders (split from NativeOnInitialized)
+	// ============================================================
+	void BuildFlightPanel(UCanvasPanel* Root);
+	void BuildEnginePanel(UCanvasPanel* Root);
+	void BuildWingPanel(UCanvasPanel* Root);
+	void BuildInstructionBar(UCanvasPanel* Root);
+	void BuildCrosshair(UCanvasPanel* Root);
+
+	// ============================================================
+	// Tick update methods (split from NativeTick)
+	// ============================================================
+	void UpdateCompass(APlayerController* PC);
+	void UpdateWindInfo(APlayerController* PC, AParamotorPlayerController* ParamotorPC);
+	void UpdateFlightStats(APawn* Pawn, AParamotorPlayerController* ParamotorPC);
+	void UpdateEngineData(AParamotorActor* Paramotor);
+	void UpdateWingData(APlayerController* PC, AParamotorPlayerController* ParamotorPC, AWingActor* Wing);
+	void UpdateInjuryStatus();
+	void UpdateTrimmerStatus(AWingActor* Wing);
+	void UpdateInstructions(APlayerController* PC, AParamotorActor* Paramotor, AParamotorPlayerController* ParamotorPC);
+
+private:
+	// Cached cardinal conversion helper
+	static FString HeadingToCardinal(float HeadingDeg);
+
+	// === UpdateWingData split helpers ===
+	void UpdateWingStateDisplay(AWingActor* Wing);
+	void UpdateWingInflationProgress(AWingActor* Wing);
+	void UpdateWingFlightMetrics(AWingActor* Wing, APlayerController* PC);
+	void UpdateWingTakeoffInfo(AWingActor* Wing);
+	void ClearWingData();
 };

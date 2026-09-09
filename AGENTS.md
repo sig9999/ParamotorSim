@@ -1,5 +1,863 @@
 # ParamotorSim Project Notes
 
+## Session 26 — Ninigret Real Terrain: Spawn, Roads, Ground Material
+
+### Overview
+Focused on Ninigret Park: real spawn location, real road network from OpenStreetMap, real grass/aerial ground material, real scanned tree assets. All on the real LiDAR-derived landscape in `L_Westerly`.
+
+### Critical bug: wrong default map (user-facing)
+- **`GameDefaultMap` was `/Game/Maps/L_OpenWorld`** — the game never loaded the real-terrain map on normal launch, so none of the Ninigret work was visible. Changed to `/Game/Maps/L_Westerly` in `Config/DefaultEngine.ini`.
+- **`EditorStartupMap`** was the empty OpenWorld template — changed to `L_Westerly` so opening the editor shows the real map.
+- **`UW_MainMenu::OnPlayClicked()`** opened `L_OpenWorld` — changed to `L_Westerly`.
+- This is why the user "wasn't spawning at Ninigret at all" — everything was being built on a map the game never loaded.
+
+### Spawn at Ninigret (auxiliary airstrip parking)
+- `AParamotorGameMode::GetLaunchFieldSpawnLocation()` line-traces the landscape for ground Z.
+- Spawn moved to airstrip-side parking: world X=957000, Y=378500 cm (UTM19N ~E279150/N4583800), confirmed standing at ~19 ft alt, walking mode.
+- Underground-spawn fix: old procedural tree ISMs had blocking collision that teleported the pawn ~14km under the map; tree collision disabled, plus post-spawn verification/teleport in `RestartPlayer()`.
+
+### Real road network (OpenStreetMap → FBX → ISM)
+- Queried Overpass API for all `highway=*`, `aeroway=runway/taxiway`, `amenity=parking`, `area:highway` ways in the Ninigret bbox (41.355–41.405, -71.715 to -71.635): **767 ways**.
+- `roads_geom.py` (system Python, rasterio+pyproj): lat/lon → UTM19N → world cm, ~15m subdivision, per-node Z from `westerly_dem_2p5m.tif`, +12cm offset → `roads_geom.json` (624 buildable strips).
+- `build_roads_mesh.py` (Blender headless): ribbon strips with widths by road class (trunk 11m → service 5m), parking lots as filled polygons, world-XY tiling UVs → `roads.fbx` (21.8k verts, 10.5k tris, 2 material slots).
+- **Axis fix:** UE FBX import negates Blender Y — baked `-Y` in the source verts + reversed winding.
+- Placed as single-instance ISM actor `RoadsActor` via `UParamotorEditorUtils::ScatterStaticMeshInstances` (the C++ path persists correctly; Python `spawn_actor_from_class` did not).
+- Materials: `M_RoadAsphalt` (asphalt_04 PBR) + `M_RoadWorn` (worn_asphalt PBR) from PolyHaven CC0, in `/Game/Textures/roads/`.
+
+### Ground material — proper technique (aerial macro + tiled detail)
+- Old approach (big translucent decal over the landscape) produced a washed-out pale blur; removed `NinigretOrthoDecal` from the map.
+- New `M_GroundFix` (`/Game/Materials`): `WorldPosition` → tiled grass texture (`aerial_grass_rock`, 3m tile, real normal map) × NAIP ortho (`T_NinigretOrtho`, world-mapped over E276076–281076 / N4581937–4586937, V flipped for texture space) × brightness factor 2.8.
+- **Lesson:** a failed material compile gets cached — a broken `M_Ground` kept failing after fixes; rebuilding under a new asset name (`M_GroundFix`) bypassed the stale cache. Simpler node graphs only (Multiply/Subtract/Constant2Vector) — exotic nodes (OneMinus/AppendVector path) had been part of the failing build.
+- Result: checkerboard gone, real grass field with aerial color modulation. Verify the parking-lot pavement reads correctly under the spawn.
+
+### Real trees (partial — leaves still missing)
+- Downloaded 5 PolyHaven CC0 scanned species (fir, pine, jacaranda, island trees), imported via native Interchange glTF into `/Game/Meshes/gltf_test/` (Blender FBX round-trip had dropped foliage).
+- Scattered **10,733 instances** across 5 ISM groups at NDVI-derived forest positions (real tree locations from NAIP near-infrared).
+- **Root cause of leafless trees found:** the game-ready PolyHaven exports are heavily decimated — `DumpMeshSections` (new C++ helper) shows the fir "twig" section has ~10 triangles, pine has 0. The leaf geometry simply isn't in these assets. Needs a real foliage pack (Fab/Megascans/Brushify) — deferred.
+- Materials: leaf MICs reparented to `MI_Default_Mask_DS`; also built standalone masked leaf materials (`M_PH_*Leaf`) on the combined diff+alpha textures — all moot until leaf geometry exists.
+- **Material usage flags matter:** ISM-rendered sections show "missing usage flag InstancedStaticMeshes → Default Material" warnings; Nanite-enabled meshes need the Nanite usage flag too. Set `used_with_instanced_static_meshes` on materials used by scattered meshes.
+
+### Tooling notes
+- **Save failures are silent file locks:** `save_current_level` in a commandlet fails if a game/editor instance holds `L_Westerly.umap` — log shows `MoveFile was unable to move`. Always `taskkill` UnrealEditor processes before commandlet saves; verify with `list_actors.py` afterwards.
+- `spawn_actor_from_class` needs `SomeClass.static_class()` and `actor.static_mesh_component` (not `get_static_mesh_component()`).
+- Blender's bundled Python has no rasterio/pyproj — split geo work (system Python → JSON) from mesh building (Blender → FBX).
+- Screenshotting: `PrintWindow(hwnd, mdc, 2)` works on the game window; avoid stealing focus (the game auto-pauses and shows the pause menu).
+- New C++ helper: `UParamotorEditorUtils::DumpMeshSections(MeshAssetPath)` — logs per-section triangle counts + materials from `GetRenderData()->LODResources[0].Sections`.
+- Working scripts live in `C:\DevinTools\` (`roads_geom.py`, `build_roads_mesh.py`, `reimport_roads.py`, `place_roads.py`, `ground_mat3.py`, `check_roadmesh.py`, `list_actors.py`).
+
+### Files changed
+- `Config/DefaultEngine.ini` — GameDefaultMap + EditorStartupMap → L_Westerly
+- `Source/ParamotorSim/Private/UW_MainMenu.cpp` — Play opens L_Westerly
+- `Source/ParamotorSim/Public/ParamotorEditorUtils.h` + `Private/ParamotorEditorUtils.cpp` — added `DumpMeshSections`
+- `Source/ParamotorSim/Private/ParamotorGameMode.cpp` — Ninigret airstrip-parking spawn (X=957000, Y=378500), post-spawn position verification
+- Content: `Meshes/roads`, `Materials/M_RoadAsphalt`, `M_RoadWorn`, `M_GroundFix`, `M_PH_*Leaf`, `Textures/roads/*`, `Textures/ground/*`, `Meshes/gltf_test/*` (5 species), map `L_Westerly` (RoadsActor, ISM_Tree_0-4, decal removed)
+
+### Backup
+- `C:\Users\sdean\Desktop\ParamotorSim_2026-09-08_22-18.zip` — 8.5 GB project archive (excl. Binaries/Intermediate/Saved/.git)
+
+### Next
+- Real foliage pack (needs Epic sign-in for Fab/Megascans) → re-scatter onto real tree positions (pipeline done, just swap meshes)
+- Verify parking-lot pavement reads correctly at spawn; tune ortho brightness factor if aerial over/under-modulates
+- Real 3D grass (Megascans clusters or grass-type instancing on the NDVI mask)
+- Remove per-tick debug logging once spawn confirmed stable
+
+## Session 25 — Procedural World Environment Setup
+
+### Overview
+Added procedural sky, lighting, fog, post-processing, and ocean water to `AParamotorGameMode`. All environment actors are spawned at runtime in `BeginPlay()` — no manual editor placement required. Works in `L_OpenWorld`.
+
+### Environment actors spawned by GameMode
+1. **ASkyAtmosphere** — Earth-like atmosphere (BottomRadius=6361km, AtmosphereHeight=100km, Rayleigh/Mie scattering scales)
+2. **ADirectionalLight** (sun) — 75000 lux, 4 cascade shadows, atmosphere sun light enabled, dynamic time-of-day positioning
+3. **ASkyLight** — Real-time sky capture, lower hemisphere tint
+4. **AExponentialHeightFog** — Volumetric fog enabled, directional inscattering, fall atmosphere colors
+5. **APostProcessVolume** — Unbound, fall color grading (warm tones), auto exposure, bloom, lens flare, vignette, motion blur, SSR
+6. **AStaticMeshActor** (ocean) — 20km x 20km water plane at Z=0, south of spawn, dark blue fallback material
+7. **AStaticMeshActor** (under-map plane) — 200x200 scale at Z=-2000, hides default concrete from below
+
+### Time-of-day sun positioning
+- `UpdateSunPosition(float TimeH)` called from `Tick()` using `GameInstance->TimeOfDay`
+- Sun elevation modeled for 41.3°N fall equinox (max 45° elevation)
+- Sunrise 6:00, sunset 18:00, below horizon at night
+- Sun intensity ramps from 2000 lux (horizon) to 75000 lux (noon)
+- Light color shifts warm at low elevation (sunset/sunrise orange)
+- Sky light intensity tracks sun elevation
+- Fog color interpolates: day (blue-grey) → sunset (orange) → night (dark blue)
+
+### UE 5.8 API fixes applied
+- `#include "Components/SkyAtmosphereComponent.h"` (not `Engine/SkyAtmosphere.h`)
+- `#include "Engine/PostProcessVolume.h"` (not `PostProcess/PostProcessSettings.h` — `FPostProcessSettings` is in `Engine/Scene.h` via `PostProcessVolume.h`)
+- `USkyAtmosphereComponent* SkyComp = SkyAtmosphereActor->GetComponent()` (properties on component, not actor)
+- `Cast<UDirectionalLightComponent>(SunLight->GetLightComponent())` (GetLightComponent returns base `ULightComponent*`)
+- `bAtmosphereSunLight` (not `bUsedAsAtmosphereSunLight` which is deprecated)
+- `FogInscatteringLuminance` (not `FogInscatteringColor` which is deprecated)
+- `DirectionalInscatteringLuminance` (not `DirectionalInscatteringColor` which is deprecated)
+- `bEnableVolumetricFog` (not `SetVolumetricFogEnable()`)
+- `VolumetricFogAlbedo` is `FColor` (not `FLinearColor`)
+- `AutoExposureMinBrightness`/`AutoExposureMaxBrightness` (not `AutoExposureMinEV100`/`AutoExposureMaxEV100`)
+
+### Missing assets (pre-existing, not caused by environment work)
+- `M_Water` material — ocean plane falls back to dark blue dynamic material
+- `M_GrassReal` material — referenced by landscape, missing
+- Fab grass materials (`025_Grass?Material...`) — referenced by external actors, missing
+- `T_LeafyGrass_D/N/R` textures — referenced by `M_Landscape`, missing
+
+### Files changed
+- `Source/ParamotorSim/Public/ParamotorGameMode.h` — environment actor members, SetupSkyAndLighting/UpdateSunPosition/SetupPostProcessing/SetupWater/SetupCoastlineDirection declarations
+- `Source/ParamotorSim/Private/ParamotorGameMode.cpp` — full procedural environment implementation
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development, 4 actions, 39.45 seconds)
+- Game launched successfully, all environment actors spawned (confirmed in logs)
+- Sky atmosphere, sun light, sky light, fog, post-process, ocean water all confirmed spawned
+
+## Session 24 — Real Atmospheric Wind & Thermal System
+
+### New file: AtmosphereModel.h
+A header-only library of real atmospheric physics formulas, all inline:
+- **Pasquill stability classification** (A-F) from solar insolation, wind speed, cloud cover, time of day
+- **Log-law wind profile** with Monin-Obukhov stability correction (Businger-Dyer-Paulson ψm)
+- **Ekman spiral** direction veering with altitude (Coriolis parameter for 41.3°N Westerly, RI)
+- **MIL-HDBK-1797B Dryden turbulence** scale lengths (altitude-dependent: low/high altitude regimes)
+- **Turbulence intensity** from friction velocity u*, stability class, and gust amplitude
+- **Dew point** (Magnus formula over water) and **cloudbase** (LCL = 125 × (T - Td))
+- **Thermal physics**: trigger temperature, climb rate (0.5-10 m/s), spacing (2.5× BL height), radius (15-250m from strength), lifetime (3-10 min), compensating subsidence
+- **Overdevelopment risk** detection (afternoon + high temp + high humidity)
+- **Sea breeze** (coastal: 3-8 m/s onshore during day, 1-3 m/s land breeze at night)
+- **Inversion layer** altitude (caps thermals)
+- **Gust factor** (WMO 3-s gust = mean + 3.5σ)
+- **Wind noise** amplitude (SPL ∝ U^2.5 for audio scaling)
+- **Flyability assessment** (Excellent/Good/Challenging/Dangerous/Unflyable)
+- **Boundary layer height** (diurnal cycle: 200m night → 3000m unstable midday)
+
+### GameInstance: Humidity added
+- New `Humidity` field (0-100%) on `UParamotorGameInstance`
+- Main menu slider added for Humidity
+- Used for dew point → cloudbase calculation and thermal strength
+
+### WingActor: Complete wind system rewrite
+
+**UpdateDynamicWind** — now implements real atmospheric physics:
+1. Pasquill stability class computed from weather + time of day
+2. Boundary layer height from stability + diurnal cycle
+3. Dew point from temperature + humidity (Magnus formula)
+4. Cloudbase from dew point (125 × (T - Td))
+5. Inversion altitude from stability + time of day
+6. Monin-Obukhov length from stability class
+7. Friction velocity u* from log law at 10m reference
+8. Wind speed from log-law profile with stability correction (not just power law)
+9. Above-boundary-layer wind increase (geostrophic)
+10. Ekman spiral direction veering (20° total through BL)
+11. Sea breeze contribution (coastal, daytime onshore)
+12. MIL-HDBK-1797B Dryden turbulence with proper altitude-dependent scale lengths
+13. 2nd-order lateral/vertical filters (per MIL-HDBK-1797B, not just 1st-order)
+14. Stability-dependent turbulence intensity (σu/u* = 2.4, multiplied by stability factor)
+15. Mechanical turbulence boost near ground (within 50m)
+16. Overdevelopment risk detection
+17. Flyability assessment
+18. Direction drift rate depends on stability (faster in unstable conditions)
+
+**Thermal system rewrite:**
+- Thermal trigger: only spawns when surface temp > 8°C AND sufficient solar insolation
+- Thermal climb rate: computed from temp, BL height, cloud cover, time of day, humidity (0-10 m/s)
+- Thermal spacing: 2.5× BL height (real atmospheric scaling, not fixed 500m)
+- Thermal radius: inversely proportional to strength (strong=narrow 15-30m, weak=wide 60-250m)
+- Thermal lifetime: 3-10 minutes (stronger = longer)
+- Thermal top: minimum of cloudbase and inversion altitude (blue thermals stop at inversion)
+- Thermal lifecycle: bubble (ramp up 10%) → column (full strength 80%) → decay (ramp down 10%)
+- Thermal drift: 80% of wind speed (advected by mean flow)
+- Cloud street alignment: thermals bias along wind direction when wind > 5 m/s
+- Compensating subsidence (sink between thermals): proportional to thermal strength, peaks at mid-BL
+- Overdevelopment risk: afternoon + high temp + high humidity → dangerous conditions
+
+**ComputeAeroState fix:**
+- Now receives real PawnLoc from UpdateFlight (was using GetAttachParentActor() which returned nullptr)
+- Altitude computation is now correct for all wind profile calculations
+
+**New accessors (public):**
+- `GetFlyability()` — returns Excellent/Good/Challenging/Dangerous/Unflyable
+- `IsOverdevelopmentRisk()` — true when OD conditions present
+- `GetBoundaryLayerHeight()` — current BL height in m
+- `GetCloudbase()` — cloudbase altitude in m
+- `GetDewPoint()` — dew point in °C
+- `GetThermalSinkAtPosition()` — subsidence m/s between thermals
+
+### WingFlightPhysics: Thermal sink integration
+- `IntegrateForces` now applies both thermal updraft AND compensating subsidence
+- Sink coupling (0.3) is gentler than updraft coupling (0.5)
+- Sink only applies when NOT in a thermal (lift < 0.5 m/s) and within BL
+
+### Cloth simulation: Vertical turbulence
+- Cloth now responds to vertical turbulence component (TurbVertState)
+- Adds realistic flutter in gusts
+
+### Wind audio: Real apparent wind with U^2.5 scaling
+- Uses wing's live wind vector (includes gusts, turbulence, gradient) from `GetWindVector()`
+- Apparent wind = true wind - vehicle velocity (vector difference)
+- Volume scales as U^2.5 (real wind noise SPL ∝ U^5, amplitude ∝ U^2.5)
+- Pitch shifts with wind speed (higher wind = higher frequency content)
+
+### HUD: Atmospheric conditions display
+- New "Conditions" text: EXCELLENT/GOOD/CHALLENGING/DANGEROUS/UNFLYABLE + OD RISK
+- New "Cloudbase" text: cloudbase altitude in feet
+- Color-coded: green (good) → yellow (challenging) → red (dangerous/OD)
+
+### Files changed
+- `Source/ParamotorSim/Public/AtmosphereModel.h` — NEW: 693 lines of real atmospheric physics
+- `Source/ParamotorSim/Public/ParamotorGameInstance.h` — added Humidity field
+- `Source/ParamotorSim/Public/UW_MainMenu.h` — added Humidity slider/callbacks
+- `Source/ParamotorSim/Private/UW_MainMenu.cpp` — added Humidity slider UI
+- `Source/ParamotorSim/Public/WingActor.h` — new atmospheric state members, public accessors, FThermal fields
+- `Source/ParamotorSim/Private/WingActor.cpp` — complete rewrite of UpdateDynamicWind + thermal system
+- `Source/ParamotorSim/Private/WingFlightPhysics.cpp` — ComputeAeroState PawnLoc fix, thermal sink integration
+- `Source/ParamotorSim/Private/WingTestSim.cpp` — vertical turbulence on cloth
+- `Source/ParamotorSim/Private/ParamotorCharacter.cpp` — real apparent wind audio with U^2.5 scaling
+- `Source/ParamotorSim/Public/UW_FlightHUD.h` — ConditionsText, CloudbaseText members
+- `Source/ParamotorSim/Private/UW_FlightHUD.cpp` — conditions/cloudbase display, AtmosphereModel include
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+- 12 actions, 82.46 seconds
+
+### Real physics implemented (no fake numbers)
+- Von Karman constant κ = 0.41
+- Coriolis parameter f = 9.58×10⁻⁵ s⁻¹ (41.3°N)
+- Roughness length z0 = 0.03m (coastal grass)
+- Dry adiabatic lapse rate = 0.0098°C/m
+- Magnus dew point formula (over water)
+- Cloudbase = 125 × (T - Td) m AGL
+- MIL-HDBK-1797B Dryden scale lengths (altitude-dependent)
+- Businger-Dyer-Paulson Monin-Obukhov stability corrections
+- Pasquill-Turner stability classification
+- Ekman spiral (20° veering through BL)
+- Sea breeze (3-8 m/s, 100-500m depth)
+- Thermal climb rates (0.5-10 m/s from literature)
+- Thermal spacing (2.5× BL height)
+- Compensating subsidence (mass conservation)
+- Gust factor (peak = mean + 3.5σ)
+- Wind noise SPL ∝ U^5 (amplitude ∝ U^2.5)
+
+## Session 23 — Wind System Overhaul
+
+### Unified wind access (single source of truth)
+- Added `GetShiftedWindDirection()` — wind direction with turbulence shift applied (normalized, world space)
+- Added `GetWindVector()` — full wind vector in cm/s including turbulence shift + gusts
+- Added `GetWindHeadingDeg()` — wind compass heading in degrees (0=N=+X, 90=E=+Y) with turbulence shift
+- All consumers now use these instead of duplicating `WindDirection.RotateAngleAxis(WindDirShift * RAD_TO_DEG, ...) * CurrentWindSpeed * CM_PER_M`
+- Replaced duplicated wind vector computation in: `ComputeAeroState`, `CheckTakeoff`, `GetTakeoffChance`, `UpdateConnectedState`, `SimulateTestWingCloth`, HUD `UpdateWindInfo`, HUD `UpdateFlightStats`, HUD instruction text
+
+### Wind direction shift instability fix
+- `WindDirShift = TurbLatState / Max(1.0f, BaseWind)` could produce 115°+ swings at low wind (1 m/s base + 2 m/s gust)
+- Fixed: `Clamp(TurbLatState / Max(2.0f, BaseWind), -0.35f, 0.35f)` — ±20° max, higher floor
+- File: `WingActor.cpp` `UpdateDynamicWind()`
+
+### Wind gradient fix
+- Was only applied above 2m altitude; below 2m used full base wind (contradicting the "near-zero at ground" comment)
+- Now applied at all altitudes with a 0.5m floor (1/7 power law naturally reduces wind at low altitudes)
+- Turbulence is added on top without gradient scaling (turbulence is a local eddy effect, not a mean profile effect)
+- File: `WingActor.cpp` `UpdateDynamicWind()`
+
+### Cloth sim wind direction fix
+- `SimulateTestWingCloth` was using `GetWindDirection()` (base direction, no turbulence shift)
+- Now uses `GetShiftedWindDirection()` — cloth responds to gust direction changes
+- File: `WingTestSim.cpp`
+
+### WindsockActor connected to live wind
+- Was completely standalone with its own `WindSpeed` (knots) and `WindDirection` (degrees) UPROPERTYs
+- Now reads live wind from `UParamotorGameInstance` (base wind) and `AWingActor` (live wind with gusts + turbulence shift)
+- Switched from knots to m/s internally (`MaxInflationSpeed` changed from 15 knots to 7.7 m/s)
+- Removed `WindDirection` and `WindSpeed` UPROPERTYs (no longer manually set)
+- Added `CachedGameInstance` member
+- Uses `GetAllActorsOfClass(AWingActor)` to find the wing in the world
+- Files: `WindsockActor.h`, `WindsockActor.cpp`
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+- 12 actions, 86.56s
+
+## Session 22c — HUD Splits + RunningShoes Removal
+
+### Assets removed
+- `Content/MetaHumans/RunningShoes/` — 248.8 MB of unused MetaHuman shoe assets (cloth, meshes, materials, textures). No C++ references. Deleted.
+
+### HUD function splits
+
+**UW_FlightHUD.cpp — UpdateWingData split (210 → 15 lines):**
+- `UpdateWingData()` reduced to 15-line dispatcher
+- Extracted: `UpdateWingStateDisplay()`, `UpdateWingInflationProgress()`, `UpdateWingFlightMetrics()`, `UpdateWingTakeoffInfo()`, `ClearWingData()`
+- Each helper calls `Wing->GetWingState()` internally (avoids exposing `EWingState` in the HUD header)
+
+**UW_PauseMenu.cpp — BuildOptionsTab split (198 → 25 lines):**
+- `BuildOptionsTab()` reduced to 25-line dispatcher
+- Extracted: `BuildQualitySection()`, `BuildResolutionSection()`, `BuildDisplayTogglesSection()`, `BuildKeybindSection()`
+- Added `CreateLabeledCheckbox()` helper — deduplicates VSync and Shadows checkbox creation (~30 lines of duplication eliminated)
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+
+## Session 22b — UpdateFlight Split + Continued Cleanup
+
+### WingFlightPhysics.cpp — UpdateFlight split (~400 → 55 lines)
+- `UpdateFlight()` reduced from ~398 lines to ~55 lines (slim dispatcher)
+- Added `FFlightCtx` nested struct to hold intermediate flight computation state (Vms, AoA, CL, CD, forces, velocity, etc.)
+- Extracted helpers:
+  - `ComputeAeroState(FFlightCtx&, FVector Vel, float Dt)` — apparent wind, AoA, ground effect, aero coefficients, collapse detection/recovery (~95 lines)
+  - `ComputeForces(FFlightCtx&)` — lift (per-side), wing/pilot/line drag, thrust, mass, glide ratio (~30 lines)
+  - `IntegrateForces(FFlightCtx&, FVector Vel, float Dt, FVector PawnLoc)` — force integration, thermal velocity contribution, velocity safety caps (~35 lines)
+  - `UpdatePendulumAndSteering(float Dt)` — pendulum physics, weight shift, brake yaw, collapse yaw, spiral dive, roll rate (~40 lines)
+  - `UpdatePilotOrientation(APawn*, ACharacter*, float Dt)` — yaw, pilot roll lag, auto-seat, pitch, mesh rotation (~25 lines)
+  - `HandleLanding(...)` — ground contact, friction, injury, flight state reset (~55 lines)
+  - `UpdateWingTransform(FFlightCtx&, FVector PilotLoc, float Dt)` — wing position above pilot, wing yaw/pitch/roll (~20 lines)
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+
+## Session 22 — Refactoring Pass + Dead Code Removal
+
+### Function splits (readability)
+
+**ParamotorCharacter.cpp — BeginPlay split:**
+- `BeginPlay()` reduced from ~188 lines to 12 lines (slim dispatcher)
+- Extracted: `LoadCharacterMesh()`, `LoadAnimations()`, `ApplySkinTone()`, `LoadFootstepSounds()`, `LoadAmbientAudio()`
+- Preserved all fallback paths (techwear → Hightop, old single footstep sounds, etc.)
+
+**ParamotorCharacter.cpp — UpdateThrustGroundPhysics split:**
+- Extracted `ApplyThrustRunningBoost()` — the walking+thrust velocity boost section (~55 lines)
+- `UpdateThrustGroundPhysics` now dispatches to the helper for running, handles standing/no-thrust inline
+
+**ParamotorActor.cpp — BuildAArmHierarchy split:**
+- Extracted `BuildSingleAArmSide(bool bLeft, USceneComponent* Stud)` — builds one side of the A-arm hierarchy
+- Eliminated ~50 lines of left/right duplication (mesh loading, quick links, riser setup)
+- `BuildAArmHierarchy` now finds studs, calls the helper twice, captures carabiner offset
+
+### Dead code removed
+
+**WingActor.h — dead constants (never referenced):**
+- `KMH_PER_MS`, `KNOTS_PER_MS` — unused unit conversions
+- `BRAKE_SLACK_CM`, `MAX_KITE_OFFSET_CM`, `MAX_KITE_VELOCITY_CM_S` — kiting logic was removed previously
+- `INFLATION_TARGET_HEIGHT_CM`, `INFLATION_OVERSHOOT_BASE_CM`, `TAKEOFF_HEIGHT_THRESHOLD_CM` — unused
+- `OSWALD_EFFICIENCY` — global constant unused (member `OswaldEfficiency` is used instead)
+- `MAX_THRUST_N` — never referenced
+
+**WingActor.h — dead member variables:**
+- `InflationHeight` — reset to 0 but never read
+- `ALineFadeFactor` — declared, never read or written
+- `GroundLogTimer`, `SustainedAirTime`, `StallLogTimer` — declared, never referenced
+- `bInParachutalStall` — set true/false in flight physics but never read (kept TODO comment)
+- `TrimSpeedMs` — written in flight physics but never read
+- `CachedCanopyMin`, `CachedCanopyMax`, `bCanopyBoundsCached` — set in cloth init but never read
+- `bCanopyMaterialApplied`, `bLineMaterialApplied` — set to true but never checked
+
+**WingActor.h — redundant forward declarations:**
+- `UStaticMeshComponent`, `UProceduralMeshComponent` — already covered by includes
+- `UMaterialInstanceDynamic` — not referenced in the class
+
+**ParamotorCharacter.h:**
+- `bInjuryLimpActive` — write-only (set in ApplyImpactInjury/HealInjury/ClearInjury, never read). Removed all 6 assignments.
+
+**ParamotorAnimInstance.h:**
+- `SetBrakeArmData()` — dead public function (data path bypassed; NativeUpdateAnimation copies IK directly from character)
+
+**UW_FlightHUD.h:**
+- `class UImage;` forward declaration — unused
+
+### Unused includes removed
+- `WingActor.cpp`: `ParamotorCharacter.h`
+- `ParamotorCharacter.cpp`: `Animation/AnimSingleNodeInstance.h`, `Materials/MaterialInstance.h`, `Engine/Texture2D.h`
+- `UW_FlightHUD.cpp`: `Components/SizeBox.h`, `Components/SizeBoxSlot.h`, `Components/Spacer.h`, `Kismet/GameplayStatics.h`
+- `UW_MainMenu.cpp`: `ParamotorCharacter.h`, `GameFramework/PlayerStart.h`, `GameFramework/PlayerController.h`
+- `ParamotorPlayerController.cpp`: `Engine/StaticMeshActor.h`
+- `ParamotorGameMode.cpp`: `Engine/World.h`
+- `WindsockActor.cpp`: `Math/UnrealMathUtility.h`
+
+### Build errors fixed during this session
+- `ParamotorGameMode.cpp` still uses `UAudioComponent` — re-added `Components/AudioComponent.h` (scan was wrong)
+- `UW_FlightHUD.cpp` still uses `UCharacterMovementComponent` — re-added `GameFramework/CharacterMovementComponent.h` (scan was wrong)
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+
+### Remaining refactor targets (not yet done)
+- `WingFlightPhysics.cpp::UpdateFlight` — ~400 lines, the largest function. Needs splitting into ApplyLiftDrag, ApplyThrust, ApplyThermal, UpdatePendulum, UpdateCollapses, UpdateRollYaw, HandleLanding.
+- `UW_FlightHUD.cpp` — `BuildWingPanel` (~146 lines), `UpdateFlightStats` (~107 lines), `UpdateEngineData` (~136 lines), `UpdateWingData` (~210 lines)
+- `UW_PauseMenu.cpp::BuildOptionsTab` — ~202 lines
+- `ParamotorAnimInstance.cpp::FParamotorAnimProxy::ApplyArmIK` — ~133 lines
+- Magic numbers in WindsockActor, ParamotorActor temperature curves, riser offset, cloth/line stiffness
+- Wind vector computation duplicated between WingActor.cpp and WingFlightPhysics.cpp — should be shared `GetWindVector()`
+- Stall-speed calculation duplicated between GetTakeoffChance and UpdateFlight — should be `GetStallSpeedMs(float Weight)`
+
+## Session 21b — Additional Cleanup (UI, dead code, correctness fixes)
+
+### Fixes
+1. **Main menu Play button** — Was loading `/Engine/Maps/Templates/Template_Default` (empty placeholder). Now loads `L_OpenWorld` (the real game map).
+2. **Pause menu null guard** — `TakeWidget()` return value wasn't checked before `SetWidgetToFocus()`. Now guarded with `IsValid()`.
+3. **GetCarabinerPositions fallback** — Computed valid estimated positions but returned `false`. Now returns `true` (callers were ignoring the result anyway, but the contract was wrong).
+4. **GetTakeoffChance +1.5kg** — Unexplained `+1.5f` in stall speed weight calculation. Removed (pilot weight already includes paramotor + fuel mass).
+5. **Starter audio** — Kept asset-level `bLooping` (UE5 `UAudioComponent` doesn't expose a looping flag). Added comment explaining why.
+
+### Dead code removed
+- **`UpdateWingTarget()`** — No-op in `ParamotorActor.cpp`, kept only for API compatibility. Removed from both `.cpp` and `.h`.
+- **`CurrentLeanPitch`** — Always forced to 0 in `UpdatePostureLean()`. The `LeanQuat * BaseQuat` multiplication was always `identity * BaseQuat = BaseQuat`. Removed variable and simplified rotation code.
+- **`SmoothedLeftBrake`/`SmoothedRightBrake`** — Assigned from `EffectiveLeftBrake`/`EffectiveRightBrake` but never read. Removed from header and physics.
+- **`ParachutalStallTimer`** — Accumulated but never read. Removed (kept `bInParachutalStall` flag for future force modulation/HUD).
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+- 4 actions, 4.77s (incremental)
+
+## Session 21 — Critical Bug Fixes + Dead Code Cleanup
+
+### 8 critical bugs fixed
+
+1. **Takeoff lift check (WingFlightPhysics.cpp)** — Was using `CL0 = 0.3` to compute lift at takeoff speed derived from `CLMax = 1.5`. Lift was only ~29% of weight, so the 80% threshold was never reached. Fix: CL now interpolates from CL0 to CLMax as airspeed approaches takeoff speed.
+
+2. **Ground effect inverted (WingFlightPhysics.cpp)** — Formula `1/(1+0.5*H²)` was 1.0 at ground (full induced drag) and decreased with altitude. Fix: linear formula `0.5 + 0.5*H` gives 0.5 at ground (50% induced drag reduction) and 1.0 at one wingspan (no effect).
+
+3. **Thermal force runaway climb (WingFlightPhysics.cpp)** — Was dividing by DeltaTime, adding ~70% of updraft speed to vertical velocity *every frame*. Fix: thermal now applied as a velocity Lerp toward the updraft speed with 0.5 coupling, capped at the updraft speed. Frame-rate independent, no runaway.
+
+4. **Brake Target vs Amount plumbing (WingActor.cpp)** — `SetLeftBrake`/`SetRightBrake` wrote to `LeftBrakeTarget`/`RightBrakeTarget`, but `UpdateFlight` read `LeftBrakeAmount`/`RightBrakeAmount`. Brakes had no effect in flight. Fix: `SetLeftBrake`/`SetRightBrake` now write to both `Amount` and `Target`.
+
+5. **Landing friction dimensionally wrong (WingFlightPhysics.cpp)** — Was `0.4 * TotalMassKg * GRAVITY_MS2 * DeltaTime * CM_PER_M` (units: kg·cm/s, mass-dependent). Fix: `0.4 * GRAVITY_CM_S2 * DeltaTime` (units: cm/s, mass-independent). Also fixed landing speed reading pre-physics velocity instead of post-zeroing.
+
+6. **Trip injury reads zeroed velocity (ParamotorCharacter.cpp)** — `Trip()` called `GetVelocity().Size2D()` after `StopMovementImmediately()` which zeroed it. Fix: use `LaunchVel` (captured before stop).
+
+7. **VSI color order wrong (UW_FlightHUD.cpp)** — `-800 fpm` check was unreachable because `-300 fpm` caught it first. Fix: check most severe condition first (`< -800` → red, then `< -300` → yellow).
+
+8. **Wing model set after FinishSpawning (ParamotorPlayerController.cpp)** — Wing model specs were assigned after `FinishSpawning` which triggers `BeginPlay`. Fix: set specs before `FinishSpawning`.
+
+### Dead code removed from WingActor.h
+
+Removed ~100 lines of unused state from the old procedural system:
+- `CellPressure[46]`, `CellFill[46]`, `CellLift[46]`, `CellDrag[46]`, `NUM_WING_CELLS`, `WingPorosity` — "real cell pressure model" never implemented
+- `KiteOffset`, `KitePitchOvershoot`, `KiteYawDrift`, `KiteYawVel`, `KiteRollSmoothed`, `PrevSymBrake`, `WingGroundYaw`, `WingGroundYawRate`, `WingGroundVel` — kiting dynamics never implemented
+- `WingVel`, `WingPitchVel`, `WingRollVel`, `WingYawVel` — wing body physics never used
+- `KiteLeftStall`, `KiteRightStall`, `KiteLeftDrag`, `KiteRightDrag` — per-side kiting never implemented
+- `LineTensionA/B/C/D`, `LineTensionFraction`, `LineStretchA/D`, `PrevPilotVel` — line tension never computed
+- `TakeoffSkipZ`, `TakeoffFootContacts`, `LaunchAngleOffset`, `CollapseRecoveryTimer` — never used
+- `CanopyOpenness`, `CellFillFactor` — write-only (set to 0, never read)
+- `EndLogTimer`, `InflLogTimer`, `RiserLogTimer`, `EntryLogTimer`, `RisersLogTimer`, `PawnLogTimer`, `RollDebugTimer` — unused log timers
+- `ELineLevel` enum — never used
+- `DEFAULT_TRIM_AOA_DEG`, `DEFAULT_STALL_AOA_DEG`, `PENDULUM_PERIOD_S` — unused constants
+- Constructor cell array zeroing — removed
+- DisconnectRisers cell array reset — removed
+- ConnectRisers kiting variable initialization — removed (replaced with local variable)
+
+### Files changed
+- `Source/ParamotorSim/Public/WingActor.h` — removed ~100 lines of dead state, enums, and constants
+- `Source/ParamotorSim/Private/WingActor.cpp` — removed cell array zeroing, kiting init, fixed brake plumbing
+- `Source/ParamotorSim/Private/WingFlightPhysics.cpp` — fixed takeoff CL, ground effect, thermal force, landing friction/speed
+- `Source/ParamotorSim/Private/ParamotorCharacter.cpp` — fixed trip injury velocity
+- `Source/ParamotorSim/Private/UW_FlightHUD.cpp` — fixed VSI color order
+- `Source/ParamotorSim/Private/ParamotorPlayerController.cpp` — fixed wing model spawn order
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+- 11 actions, 106.65s (full rebuild from header change)
+
+## Session 20 — Thermal System + Wind System Fixes
+
+### What was built
+
+**Thermal system (new):**
+- `FThermal` struct: position, radius, strength (m/s updraft), altitude range (base to cloudbase), lifetime, drift velocity
+- `UpdateThermals(float DeltaTime)` — spawns, drifts (with wind), ages, and removes thermals
+- `SpawnThermal()` — creates thermals near pilot at random positions (50-500m away), 30-100m radius, 2-6 m/s peak strength
+- `GetThermalLiftAtPosition(FVector, float AltitudeM)` — returns updraft m/s at a given position/altitude. Uses cosine radial falloff + parabolic altitude profile (strongest at mid-height)
+- `ComputeThermalStrengthMultiplier()` — scales thermal strength from weather conditions:
+  - Temperature: 5°C = no thermals, 25°C = full, 35°C = 1.5×
+  - Cloud cover: clear = full strength, overcast = 20%
+  - Time of day: bell curve peaking at 14:00, zero outside 09:00-19:00
+- Cloudbase altitude computed from cloud cover (600m overcast → 2200m clear)
+- Thermal lift applied in `WingFlightPhysics.cpp` as vertical force on the wing (70% coupling factor)
+
+**Wind gradient with altitude (fix):**
+- Wind speed now follows 1/7 power law profile: `V(h) = V_ref × (h/10m)^0.143`
+- Near-zero wind at ground level, reference at 10m, up to 2.5× at altitude
+- Applied in `UpdateDynamicWind()` after base + turbulence calculation
+
+**Wind direction drift (fix):**
+- Wind direction now slowly drifts ±5°/minute via random walk
+- No longer locked at riser connection time
+- Applied in `UpdateDynamicWind()`
+
+**Wind audio fix:**
+- `UpdateWindAudio()` now scales with actual wind speed + pilot airspeed (apparent wind)
+- Was: volume from pilot speed only (standing in 20 m/s wind = silence)
+- Now: volume from `WindSpeed + PilotSpeed × 0.5`, mapped 0-15 m/s to 0.15-0.6 volume
+
+**HUD temperature fix:**
+- `UpdateFlightStats()` now uses `GameInstance->Temperature` as sea-level base
+- Was: hardcoded ISA 15°C base, ignoring user-set Temperature
+- Now: user-set ground temp with ISA lapse rate (-6.5°C/1000m)
+
+**Dead variables now live:**
+- `CloudCover` → thermal strength multiplier + cloudbase altitude
+- `Temperature` → thermal strength multiplier + HUD temperature base
+- `TimeOfDay` → thermal strength multiplier (day/night cycle for thermals)
+
+### Files changed
+- `Source/ParamotorSim/Public/WingActor.h` — added `FThermal` struct, thermal system members and method declarations
+- `Source/ParamotorSim/Private/WingActor.cpp` — implemented thermal system, wind gradient, wind direction drift
+- `Source/ParamotorSim/Private/WingFlightPhysics.cpp` — added thermal lift force to flight physics
+- `Source/ParamotorSim/Private/ParamotorCharacter.cpp` — fixed wind audio to use wind speed
+- `Source/ParamotorSim/Private/UW_FlightHUD.cpp` — fixed temperature to use GameInstance Temperature
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+- 11 actions, 108.58s (full rebuild from header change)
+
+### Remaining wind/thermal work (future)
+- Visual thermal indicators (dust devils, birds circling, cloud streets)
+- Sea breeze modeling for coastal environment
+- Wind shadowing from terrain
+- Ground-based wind visual effects (grass movement, dust)
+- Day/night lighting cycle from TimeOfDay
+- Thermal detection audio (vario beep)
+
+## Session 19 — WingActor Refactor
+
+### What was refactored
+`WingActor.cpp` was refactored to split `TickTestWing()` and extract reusable helpers from `BeginPlay` and `ForceTakeoff`.
+
+**Before:**
+- `TickTestWing()` was 147 lines mixing connected state, flight dispatch, cloth/line sim, mesh updates, and riser mesh positioning
+- `BeginPlay()` had inline material loading (20 lines)
+- `ForceTakeoff()` had inline CMC setup (10 lines) that could be reusable
+
+**After:**
+- `TickTestWing()` is 25 lines (slim dispatcher)
+- Material loading extracted to `LoadMaterials()`
+- CMC flight setup extracted to `EnterFlightMode(ACharacter*)` — reusable by `CheckTakeoff` in `WingFlightPhysics.cpp`
+
+### Architecture
+
+**Init helpers (split from BeginPlay):**
+- `LoadMaterials()` — loads canopy + line materials with fallback chain
+
+**Flight mode helper (extracted from ForceTakeoff):**
+- `EnterFlightMode(ACharacter* Char)` — disables CMC, sets MOVE_None, zero gravity, disables rotation flags, sets mesh to flight base rotation. Reusable by both `ForceTakeoff()` and `CheckTakeoff()`.
+
+**Tick sub-helpers (split from TickTestWing):**
+- `UpdateConnectedState(float DeltaTime)` — line tension drag, yaw to wind, inflation transition (Connected → Inflating → Inflated)
+- `UpdateRiserMesh()` — positions riser mesh at carabiner midpoint (connected) or average line bottom (disconnected), with proper yaw alignment
+
+### Files changed
+- `Source/ParamotorSim/Public/WingActor.h` — added `LoadMaterials`, `EnterFlightMode`, `UpdateConnectedState`, `UpdateRiserMesh` declarations
+- `Source/ParamotorSim/Private/WingActor.cpp` — extracted helpers, slimmed `TickTestWing` to dispatcher
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+- 11 actions, 92.36s (full rebuild due to header change)
+
+## Session 18 — Player Controller Refactor
+
+### What was refactored
+`AParamotorPlayerController` was refactored to split the monolithic `Tick()` and deduplicate spawn logic.
+
+**Before:**
+- `Tick()` was 163 lines mixing throttle, grab, carabiners, brakes, weight shift, and IK
+- 3 spawn functions each duplicated the ground-trace pattern (~10 lines each)
+
+**After:**
+- `Tick()` is 8 lines (slim dispatcher)
+- Ground-trace deduplicated into `FindGroundZ()` helper
+
+### Architecture
+
+**Tick helpers (split from Tick):**
+- `UpdateThrottle(float DeltaTime)` — throttle ramp up/down + spring return + thrust to character
+- `UpdateGrabPosition(APawn* CachedPawn)` — crosshair-follow grab position update
+- `UpdateWingRig(float DeltaTime, APawn* CachedPawn)` — carabiner positions, brake ramping, weight shift, arm IK
+- `ComputeBrakeArmTargets(AParamotorCharacter*, AWingActor*, FVector&, FVector&)` — determines which brake handle is on pilot's left vs right (wing may be yawed relative to pilot)
+
+**Spawn helper:**
+- `FindGroundZ(FVector Start, APawn* IgnorePawn)` — traces down to find ground Z, used by all 3 spawn functions
+
+### Files changed
+- `Source/ParamotorSim/Public/ParamotorPlayerController.h` — added forward declaration for AParamotorCharacter, added helper method declarations
+- `Source/ParamotorSim/Private/ParamotorPlayerController.cpp` — split Tick, extracted helpers, deduplicated spawn ground traces
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+- 9 actions, 24.85s
+
+## Session 17 — HUD Refactor
+
+### What was refactored
+`UW_FlightHUD` (the in-flight HUD) was refactored from a monolithic 1110-line file into a clean, split architecture.
+
+**Before:**
+- `NativeOnInitialized()` was 463 lines with 6 local lambda helpers
+- `NativeTick()` was 700 lines with deeply nested logic (compass, wind, stats, engine, wing, injury, trimmer, instructions all inline)
+
+**After:**
+- `NativeOnInitialized()` is 12 lines (slim dispatcher calling 5 builders)
+- `NativeTick()` is 18 lines (slim dispatcher calling 8 update methods)
+
+### Architecture
+
+**UI construction helpers (extracted from lambdas):**
+- `MakeText()` — styled text block with font size + outline
+- `AddToVBox()` — add widget to vertical box with padding
+- `MakePanel()` — styled semi-transparent border panel
+- `MakeHeader()` — section header text
+- `AddStatRow()` — label + value row
+- `AddSeparator()` — thin divider line
+- `AddGaugeRow()` — label + value + progress bar row
+
+**UI builders (split from NativeOnInitialized):**
+- `BuildFlightPanel()` — top-right compass + flight stats
+- `BuildEnginePanel()` — bottom-left engine gauges
+- `BuildWingPanel()` — bottom-left wing state + brakes + inflation + glide + trimmer
+- `BuildInstructionBar()` — bottom-center context-sensitive instructions
+- `BuildCrosshair()` — center dot + ring
+
+**Tick update methods (split from NativeTick):**
+- `UpdateCompass()` — heading cardinal + degrees
+- `UpdateWindInfo()` — wind direction cardinal + speed
+- `UpdateFlightStats()` — altitude, ground speed, airspeed, VSI, temp, wind speed
+- `UpdateEngineData()` — engine state, RPM, throttle, CHT, EGT, fuel, hours
+- `UpdateWingData()` — wing state, brakes, inflation, pendulum, weight support, glide ratio, takeoff chance, debug
+- `UpdateInjuryStatus()` — injury name + severity
+- `UpdateTrimmerStatus()` — trimmer position bar + seat/hang point
+- `UpdateInstructions()` — context-sensitive on-screen guidance
+
+**Static helper:**
+- `HeadingToCardinal()` — converts heading degrees to N/NE/E/SE/S/SW/W/NW (deduplicated from 2 inline copies)
+
+### Files changed
+- `Source/ParamotorSim/Public/UW_FlightHUD.h` — added forward declarations, helper/builder/update method declarations, static HeadingToCardinal
+- `Source/ParamotorSim/Private/UW_FlightHUD.cpp` — full rewrite into split architecture
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+- 4 actions, 5.18s
+
+## Session 16 — Pause Menu Refactor
+
+### What was refactored
+`UW_PauseMenu` was refactored from a monolithic 1131-line file with an 866-line `NativeOnInitialized()` into a clean, split architecture.
+
+**Before:**
+- `NativeOnInitialized()` was 866 lines (largest function in the project)
+- 4 duplicated quality preset handlers
+- `WidgetStyle` deprecation warnings
+
+**After:**
+- `NativeOnInitialized()` is 12 lines (slim dispatcher)
+- 1 common `SetQualityLevel()` method
+- Zero deprecation warnings
+
+### Architecture
+
+**UI construction helpers:**
+- `MakeText()`, `MakeLeftText()` — styled text blocks
+- `CreateCardButton()`, `CreatePillButton()` — styled buttons
+- `CreateSectionHeader()`, `CreateNavButton()`, `CreateTabPanel()`, `CreateWingCard()` — UI element builders
+- `AddKeybindRow()` — key binding row
+- `ApplyButtonColors()` — static helper replacing deprecated WidgetStyle access
+
+**UI builders:**
+- `BuildRootLayout()` — root canvas, dim background, main panel, sidebar shell, content area
+- `BuildSidebar()` — logo, nav buttons, footer
+- `BuildMainTab()` — resume/quit buttons
+- `BuildSpawnTab()` — paramotor/wing spawn buttons
+- `BuildOptionsTab()` — quality presets, resolution scale, toggles, keybinds
+- `InitFromCurrentSettings()` — sync UI to current game settings
+
+### Files changed
+- `Source/ParamotorSim/Public/UW_PauseMenu.h` — refactored widget members and helper declarations
+- `Source/ParamotorSim/Private/UW_PauseMenu.cpp` — full rewrite into split architecture
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+
+## Session 15 — New Flight Physics for MacPara Charger Wing
+
+### What was built
+A completely new `WingFlightPhysics.cpp` (506 lines) implementing full aerodynamic flight for the MacPara Charger 25M wing. This replaces the ~1000-line procedural flight physics that was deleted in Session 14.
+
+### Architecture
+Two new functions added to `AWingActor`:
+
+1. **`CheckTakeoff(float DeltaTime)`** — Called every frame while `Inflated` and risers connected. Detects when the pilot has enough airspeed and lift to leave the ground, then transitions to `Flying` state. Uses real stall speed calculation: `V_stall = sqrt(2 * W / (rho * S * CLmax))` with 20% margin.
+
+2. **`UpdateFlight(float DeltaTime)`** — Called every frame while `Flying`. Full flight physics:
+   - Trimmer interpolation (smooth position changes)
+   - Brake lag filter (trailing edge deflection takes ~0.3s)
+   - Apparent wind computation (wind + turbulence - velocity)
+   - Angle of attack from trim + brake + trimmer + turbulence
+   - Ground effect (induced drag reduction near ground)
+   - NACA 4415 polar lookup with camber adjustment from brake input
+   - Per-side lift (left/right halves for asymmetric collapse effects)
+   - Wing drag + pilot drag + line drag
+   - Thrust from paramotor engine (blade-element theory via `GetThrustForceN`)
+   - Force integration (lift, drag, thrust, gravity → acceleration → velocity)
+   - Pendulum physics (pilot swings under wing on 7.5m lines)
+   - Roll steering (weight shift + brake asymmetry + collapse-induced roll)
+   - Yaw steering (brake yaw + collapse yaw, with inertia)
+   - Spiral dive modeling (bank > 40° → spiral tendency increases)
+   - Collapse detection (asymmetric from heavy brake at high AoA, frontal from negative AoA)
+   - Collapse recovery (wind-dependent recovery rate, brake slows recovery)
+   - Parachutal stall (too much brake at low speed)
+   - Pilot orientation (yaw, pitch transition to seated, roll lag from pendulum)
+   - Landing detection (ground contact, friction deceleration, injury from hard landing)
+   - Full flight state reset on landing
+   - Wing position/orientation (at line length above pilot, yawed into wind, pitched from AoA, rolled from bank)
+   - HUD variable updates (airspeed, climb rate, glide ratio)
+   - Flight logging (1 Hz)
+
+### Key physics formulas
+- **Lift**: `L = 0.5 * ρ * V² * S * CL` (per-side, with collapse fraction)
+- **Drag**: `D = 0.5 * ρ * V² * S * (CD0 + CL²/(π*AR*e) * ground_effect + brake_CD)`
+- **Thrust**: From `ParamotorActor::GetThrustForceN(airspeed)` — blade-element momentum theory
+- **Stall speed**: `V_stall = sqrt(2 * W / (ρ * S * CLmax))`
+- **Pendulum**: `ω = sqrt(g/L)`, damped oscillation
+- **Ground effect**: `GE = 1/(1 + 0.5*(h/b)²)` where h=altitude, b=wingspan
+
+### Takeoff transition
+- `CheckTakeoff()` runs while Inflated + connected
+- Conditions: airspeed ≥ 1.2 × stall speed, lift ≥ 80% weight, throttle > 25%
+- On takeoff: sets MOVE_None, gravity 0, stores ground-run velocity, begins seat transition
+- Debug diagnostics stored for HUD: ground airspeed, ground speed, headwind, takeoff threshold, weight support
+
+### Landing transition
+- Ground contact detected when `Z ≤ groundZ + 1cm` and descending
+- Friction decelerates horizontal velocity
+- Hard landing (> 3 m/s vertical) applies injury via `ApplyImpactInjury`
+- Full flight state reset: pendulum, pitch, roll, brakes, collapses, trimmers, cells
+- Returns to Inflated state, restores MOVE_Walking
+
+### Files changed
+- **New**: `Source/ParamotorSim/Private/WingFlightPhysics.cpp` (506 lines)
+- **Modified**: `Source/ParamotorSim/Public/WingActor.h` — added `UpdateFlight()` and `CheckTakeoff()` declarations
+- **Modified**: `Source/ParamotorSim/Private/WingActor.cpp` — added flight physics calls in `TickTestWing()`
+
+### Build status
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+- Game launched and ran without crashes
+- No runtime errors in log
+
+### What works now (full core loop)
+- Spawn → Equip paramotor → Connect risers → Inflate (wind-driven) → Kite → Run + throttle → Takeoff → Fly → Land
+- All flight controls: throttle (W/S), brakes (Q/E), weight shift (mouse), trimmers (=/-), seat toggle (G), hang point ([/])
+- HUD displays: airspeed, climb rate, glide ratio, pendulum angle, brake amounts, trimmer position, seat/hang point status
+- F5 force takeoff still works for debugging
+
+## Session 14 — Deleted Procedural Wing Path (MacPara Charger is the only wing)
+
+### What was deleted
+The entire procedural wing simulation path was removed. The MacPara Charger 25M (formerly "test wing") is now the only wing. This eliminates ~5000 lines of duplicated simulation code and the two-path maintenance nightmare.
+
+**Deleted source files:**
+- `WingClothSim.cpp` — procedural Verlet cloth simulation (1320 lines)
+- `WingLinesSim.cpp` — procedural line cascade simulation
+- `WingVisuals.cpp` — procedural canopy/line mesh generation + ApplyInflatedShape
+- `WingGroundHandling.cpp` — procedural inflation/kiting physics + GetTakeoffChance
+- `WingFlightPhysics.cpp` — procedural flight physics (1009 lines) + trimmer/seat helpers
+- `ParagliderWingMesh.h` — 15k-line generated procedural wing mesh data header
+
+**Deleted from WingActor.h:**
+- `bUseTestWingMesh` UPROPERTY (no longer needed — test wing is the only wing)
+- `FFlightContext` struct (procedural flight physics helper state)
+- `FClothContext` struct (procedural cloth sim helper state)
+- `FLineParticle` struct + `LineParticles` array (procedural line particles)
+- `FLineAttachment` struct + `LineAttachments` array
+- `LineConstraints` array
+- `LeftRiserIdx`, `RightRiserIdx`, `LeftCarabinerIdx`, `RightCarabinerIdx`, `LeftBrakeHandleIdx`, `RightBrakeHandleIdx`
+- `LeftRiserDir`, `RightRiserDir`
+- `Gravity`, `Damping`, `ConstraintIterations` (procedural physics params)
+- All procedural function declarations: `InitCloth`, `InitLines`, `SimulateCloth`, `SimulateLines`, `UpdateInflation`, `UpdateFlight`, `UpdateCellPressure`, `GetTotalCellLiftN`, `GetTotalCellDragN`, `GetLeftCellDragN`, `GetRightCellDragN`, `UpdateCanopyMesh`, `UpdateLineMesh`, `SetInflatedShape`, `ApplyInflatedShape`, `GetRibVertexIndex`, `UpdateKitingCollapses`, `ComputeThermalLiftMs`, `HandleLanding`, `UpdateWingPositionFromLines`, `ApplyVelocitySafetyCaps`, `ShiftAllParticles`, all `UpdateFlight*` helpers, all `SimulateCloth*`/`UpdateKiting*` helpers, `TickProceduralWing`
+
+**Deleted from WingActor.cpp:**
+- `#include "ParagliderWingMesh.h"`
+- Procedural `else` branch in `BeginPlay()`
+- `TickProceduralWing()` function (180 lines)
+- Procedural carabiner unpin in `DisconnectRisers()`
+
+### Functions moved to WingActor.cpp
+These were in the deleted files but called from outside the procedural path:
+- `SetSpreadState()` — from WingVisuals.cpp (visibility toggle)
+- `GetTakeoffChance()` — from WingGroundHandling.cpp (HUD reads this)
+- `GetTrimmerAoAOffset()`, `GetTrimmerPitchOffset()`, `GetTrimmerCollapseRisk()` — from WingFlightPhysics.cpp
+- `GetTrimmerLabel()` — from WingFlightPhysics.cpp (HUD and controller read this)
+- `ToggleSeat()`, `AdjustHangPoint()` — from WingFlightPhysics.cpp (controller calls these)
+
+### New implementations
+- `GetLeftBrakeHandleWorldPos()` / `GetRightBrakeHandleWorldPos()` — were in deleted WingLinesSim.cpp, reimplemented in WingActor.cpp using carabiner positions minus riser length (approximation for arm IK)
+
+### What remains
+- `WingActor.cpp` — actor lifecycle, wind, shared API, moved functions
+- `WingTestSim.cpp` — the only wing simulation (MacPara Charger cloth + lines + meshes)
+- `MacParaChargerData.h` — real wing geometry
+- `MacParaChargerLines.h` — real line endpoints
+- `AirfoilPolar.h/.cpp` — aerodynamic polar data
+
+### Build verification
+- Build succeeded (UE 5.8, MSVC 14.44, Win64 Development)
+- Only pre-existing `UW_PauseMenu.cpp` `UButton::WidgetStyle` deprecation warnings remain
+
+### Architecture note
+The test wing path does NOT have flight physics yet. It handles ground handling (inflation, kiting, line tension) but `UpdateFlight()` was part of the deleted procedural path. Flight physics will need to be reimplemented for the MacPara Charger wing. This is the next major task.
+
+## Session 13 — Whole-Game Audit & Refactor
+
+### Bug Fixes
+- **Engine state machine** (`ParamotorActor.cpp` `Tick()`): `UpdateEngineSpoolDown()` was running for both `Off` and `Cranking` states (the `else` branch caught both). Fixed to only spool down when `EngineState == Off`.
+- **DisconnectRisers state reset** (`WingActor.cpp`): Did not reset `bIsAirborne`, `CellFillFactor`, `CanopyOpenness`, `InflationProgress`, `InflationHeight`, `CellFill[]`, or `CellPressure[]` on disconnect. Now resets all flight state to avoid stale values on next connect.
+- **HandleLanding speed threshold** (`WingFlightPhysics.cpp`): Only transitioned `WingState` from `Flying` to `Inflated` if `NewVel.Size2D() < 100.0f` (1 m/s). Real landings can be faster. Now always transitions on ground contact. Also resets `CanopyOpenness`, `CellFillFactor`, and `CellFill[]`/`CellPressure[]` on landing.
+
+### Dead Code Removed
+- **WingActor.h**: `TestWingMesh` (never created), `KiteLogTimer` (never referenced), `DragReductionFromSeat` (assigned but never read), `DutchRollYaw`/`DutchRollRoll` (always 0, no effect), `FlightTurbulence` (always ZeroVector, no effect), `SmoothedKillFactor` (never referenced), `WindGustPhase` (never referenced), `GroundFriction` (CMC's GroundFriction used instead).
+- **Dead functions**: `ComputeGroundWind()` (never called), `SetTestWingInflated()` (never called), `PumpBrakes()` (stub — only logged), `GetTrimmerSpeedFactor()`/`GetTrimmerDragFactor()`/`GetTrimmerCLFactor()` (all returned 1.0 — no-op multipliers, polar handles trimmer effects through AoA).
+- **Dead variable**: `StretchAoAEffect` (computed but never used), `YawRestoring` (always 0, added to yaw velocity for no effect).
+- **UW_FlightHUD**: `HeadingIndicator`/`WindIndicator` (never created), `MakeImage` lambda (never called).
+- **UW_PauseMenu**: `OnSpawnParamotorClicked` (never bound to a button), `SetTabActive` unused parameters `InactiveBtn1`/`InactiveBtn2` (function derived state from internal array instead).
+- **ParamotorPlayerController**: `bTrimmerFastHeld`/`bTrimmerSlowHeld` (set but never read).
+- **ParamotorCharacter**: `TargetLeanPitch` (set but never read), `bWasMoving` (set but never read).
+- **ParamotorGameMode.h**: Unused forward declarations `UMaterial`/`UMaterialInstanceDynamic`.
+
+### Function Splitting
+- **WingActor::Tick** (324 lines) split into `TickTestWing()` + `TickProceduralWing()` with a simple dispatcher. Each branch handles its own wind update, simulation, mesh updates, and riser positioning.
+
+### Code Deduplication
+- **Carabiner fallback**: Duplicated in `OnInteract()` and `Tick()` of `ParamotorPlayerController.cpp`. Extracted to `GetCarabinerPositions()` helper that tries real paramotor hardware first, falls back to character-position estimation.
+- **Thrust query**: Duplicated 3x in `ParamotorCharacter.cpp` (`UpdateThrustGroundPhysics`, `UpdateThrustAirPhysics`, `UpdateTripRisk`). Extracted to `GetEquippedThrustN()` helper.
+
+### Build Verification
+- All builds succeeded (UE 5.8, MSVC 14.44, Win64 Development).
+- Only pre-existing `UW_PauseMenu.cpp` `UButton::WidgetStyle` deprecation warnings remain.
+
+### Deferred (Future Work)
+- Split `UW_FlightHUD::NativeTick` (700 lines) and `NativeOnInitialized` (471 lines) into helpers.
+- Split `UW_PauseMenu::NativeOnInitialized` (867 lines) into tab-creation helpers.
+- Extract shared Verlet/constraint helper to eliminate duplication between `SimulateCloth`/`SimulateTestWingCloth` and `SimulateLines`/`SimulateTestWingLines`.
+- Extract shared cylinder-tube mesh builder used in 3 places.
+- Move `MacParaChargerData.h` (7800 lines) to `extern const` + `.cpp` definition or runtime-loaded asset.
+- Consolidate magic numbers into named constants (engine audio, injury thresholds, attachment offsets).
+- Make detailed paramotor hierarchy the authoritative connection rig (replace test-frame fallback).
+
+## Session 12 — Fixed Broken Reflex Airfoil / Trailing Edge (ParagliderWingMesh.h + Blender asset)
+
+### The bug
+The wing canopy mesh (both `ParagliderWingMesh.h` used by `WingActor`/`WingClothSim`/`WingVisuals`/`WingLinesSim`, and the Blender hero asset `C:\DevinTools\charger_full.blend`) had two serious geometry defects, diagnosed via `C:\DevinTools\_diag_arch_full.py`:
+1. **Trailing edge never closed** — every one of the 47 ribs had a 7-19cm gap between the top and bottom surface at the TE, from a post-hoc "blend near x>0.95" hack in the old `reflex_airfoil()` function that didn't actually guarantee closure and was further corrupted by prior ad-hoc `_fix_airfoil*.py` edits.
+2. **Spanwise arch was not monotonic** — it had two sharp ~0.85m discontinuities (around rib 9/10 and rib 36/37) instead of a smooth dome, i.e. two different generation passes had been stitched together badly.
+
+### The fix
+New shared module `C:\DevinTools\charger_wing_geometry.py`:
+- Airfoil defined as `camber(x) ± thickness(x)/2`, with `thickness(x)` analytically zero at `x=0` and `x=1` — closure is a mathematical guarantee, not a blend hack. Self-test asserts closure < 1e-6cm before any consumer trusts it.
+- Reflex camber: rises to peak (~9.3cm at root) near 28% chord, eases down through mid-chord, dips negative (~-3.2cm, the actual "reflex") near 85-90% chord, returns exactly to 0 at the TE.
+- Spanwise arch: single continuous `cos()` dome (30cm anhedral rise at center) + smoothstep-eased tip drop (90cm, starting at 72% span) — no discontinuities by construction.
+- Taper: root chord fixed at 271cm (real spec), TE held at a fixed unswept X (matches the existing rig convention so lines/risers/hardware didn't need to move), tip chord ratio **calibrated to 0.6136** (not guessed) so the resulting planform area/AR exactly match the published spec (25.43 m², AR 5.14 over an 11.44m span). Note: this is *wider* than both the old broken generator's guess (0.55) and an intermediate guess informed by digitized plan data (0.40) — the digitized planform extraction (`charger_planform_exact.json`) turned out to be internally inconsistent (puts max chord at 79% span instead of the root, impossible for this shape) due to a flawed single-global-perpendicular-direction extraction method, so it was not trusted for the final taper; the real area/AR/span spec numbers were used instead.
+
+Applied to both:
+- `C:\DevinTools\gen_charger_wing.py` → regenerated `Source/ParamotorSim/Public/ParagliderWingMesh.h` (same `PGPointsPerRib=84`/`PGNumRibs=47` convention, verified closure on every rib before writing, UE5 build succeeds).
+- `C:\DevinTools\_rebuild_wing_canopy.py` → rebuilt the `Wing_Inflated` mesh object in `charger_full.blend` in place (backup at `charger_full_before_reflex_fix.blend`), preserving the rig (armature, 112 bones, lines, risers, hardware, logo), existing material slots, and the `RibLE_NN`/`RibTE_NN` vertex-group naming convention. Verified via `_diag_arch_full.py`: TE gap now ~0.0002-0.0009m on every rib (down from 7-19cm), arch is a single smooth symmetric dome.
+
+### Honesty note (carried into code comments)
+This is still a physically plausible approximation built from published top-level specs (span, root chord, AR, area, cell count, tip drop), not a verified 1:1 CAD/airfoil reproduction — MacPara has not published the actual rib/airfoil coordinates for the Charger. What changed is that the approximation is now internally consistent (closes properly, smooth arch, area/AR match spec) instead of being broken.
+
 ## Session 11 — ParamotorCharacter::Tick Refactor
 
 ### ParamotorCharacter.cpp Tick Split

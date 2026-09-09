@@ -20,7 +20,7 @@ void UParamotorAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	Super::NativeUpdateAnimation(DeltaSeconds);
 
 	// Advance animation time
-	if (Proxy.CurrentAnim)
+	if (IsValid(Proxy.CurrentAnim))
 	{
 		float SeqLength = Proxy.CurrentAnim->GetPlayLength();
 		if (SeqLength > 0.0f)
@@ -37,7 +37,7 @@ void UParamotorAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	}
 
 	// Update IK data from owning character
-	if (OwningCharacter)
+	if (IsValid(OwningCharacter))
 	{
 		Proxy.bLeftArmActive = OwningCharacter->bLeftBrakeArmActive;
 		Proxy.bRightArmActive = OwningCharacter->bRightBrakeArmActive;
@@ -50,23 +50,9 @@ void UParamotorAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	}
 }
 
-void UParamotorAnimInstance::SetBrakeArmData(bool bLeftActive, bool bRightActive,
-	FVector LeftTarget, FVector RightTarget,
-	float LeftRaise, float RightRaise,
-	float LeftPull, float RightPull)
-{
-	Proxy.bLeftArmActive = bLeftActive;
-	Proxy.bRightArmActive = bRightActive;
-	Proxy.LeftHandTarget = LeftTarget;
-	Proxy.RightHandTarget = RightTarget;
-	Proxy.LeftArmRaise = LeftRaise;
-	Proxy.RightArmRaise = RightRaise;
-	Proxy.LeftArmPull = LeftPull;
-	Proxy.RightArmPull = RightPull;
-}
-
 void UParamotorAnimInstance::PlaySequence(UAnimSequence* Anim, bool bLooping)
 {
+	CurrentAnim = Anim;
 	if (Proxy.CurrentAnim != Anim)
 	{
 		Proxy.CurrentAnim = Anim;
@@ -87,7 +73,7 @@ void UParamotorAnimInstance::SetPlayRate(float Rate)
 bool FParamotorAnimProxy::Evaluate(FPoseContext& Context)
 {
 	// Step 1: Fill the pose from the current animation sequence
-	if (CurrentAnim && CurrentAnim->GetPlayLength() > 0.0f)
+	if (IsValid(CurrentAnim) && CurrentAnim->GetPlayLength() > 0.0f)
 	{
 		FAnimExtractContext ExtractCtx(AnimTime, false);
 		FAnimationPoseData AnimPoseData(Context);
@@ -161,8 +147,8 @@ void FParamotorAnimProxy::ApplyArmIK(FPoseContext& Context, bool bLeftArm, FVect
 	FVector ActorRight = Owner ? Owner->GetActorRightVector() : SkelMesh->GetRightVector();
 	FVector ActorForward = Owner ? Owner->GetActorForwardVector() : SkelMesh->GetForwardVector();
 	FVector ActorUp = FVector(0, 0, 1);
-	ActorRight.Z = 0.0f; ActorRight.Normalize();
-	ActorForward.Z = 0.0f; ActorForward.Normalize();
+	ActorRight.Z = 0.0f; ActorRight = ActorRight.GetSafeNormal2D();
+	ActorForward.Z = 0.0f; ActorForward = ActorForward.GetSafeNormal2D();
 
 	// Bone lengths (from current pose)
 	float UpperArmLen = (LowerArmWorld - UpperArmWorld).Size();
@@ -194,7 +180,8 @@ void FParamotorAnimProxy::ApplyArmIK(FPoseContext& Context, bool bLeftArm, FVect
 	// When pulling, the handle moves down (wing physics), so we just follow it
 	// The Pull value is already reflected in the handle position from the wing.
 	// We add a small downward offset when pulling for extra visual emphasis.
-	float SmoothPull = Pull * Pull * (3.0f - 2.0f * Pull);  // Smoothstep
+	float ClampedPull = FMath::Clamp(Pull, 0.0f, 1.0f);
+	float SmoothPull = ClampedPull * ClampedPull * (3.0f - 2.0f * ClampedPull);  // Smoothstep
 	FVector PullOffset = FVector(0, 0, -SmoothPull * 10.0f);  // Extra 10cm down when fully pulled
 	FVector BrakeTarget = HandlePos + PullOffset;
 

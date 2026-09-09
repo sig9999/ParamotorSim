@@ -37,6 +37,9 @@ protected:
 	void OnTemperatureChanged(float Value);
 
 	UFUNCTION()
+	void OnHumidityChanged(float Value);
+
+	UFUNCTION()
 	void OnTimeOfDayChanged(float Value);
 
 	UTextBlock* CreateSlider(UCanvasPanel* RootCanvas, const TCHAR* Name, float Min, float Max, float Value, float YPos);
@@ -57,6 +60,9 @@ protected:
 	UTextBlock* TempLabel = nullptr;
 
 	UPROPERTY()
+	UTextBlock* HumidityLabel = nullptr;
+
+	UPROPERTY()
 	UTextBlock* TimeLabel = nullptr;
 
 	UPROPERTY()
@@ -70,6 +76,9 @@ protected:
 
 	UPROPERTY()
 	USlider* TempSlider = nullptr;
+
+	UPROPERTY()
+	USlider* HumiditySlider = nullptr;
 
 	UPROPERTY()
 	USlider* TimeSlider = nullptr;

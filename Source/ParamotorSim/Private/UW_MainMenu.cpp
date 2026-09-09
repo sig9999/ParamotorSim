@@ -1,10 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "UW_MainMenu.h"
-#include "ParamotorCharacter.h"
 #include "ParamotorGameInstance.h"
-#include "GameFramework/PlayerStart.h"
-#include "GameFramework/PlayerController.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
@@ -20,16 +17,16 @@ void UUW_MainMenu::NativeConstruct()
 	Super::NativeConstruct();
 
 	GameInstanceRef = Cast<UParamotorGameInstance>(UGameplayStatics::GetGameInstance(this));
-	if (!GameInstanceRef)
+	if (!IsValid(GameInstanceRef))
 	{
-		GameInstanceRef = NewObject<UParamotorGameInstance>(this);
+		UE_LOG(LogTemp, Warning, TEXT("MainMenu: No ParamotorGameInstance found; weather values will use defaults."));
 	}
 
-	UCanvasPanel* RootCanvas = NewObject<UCanvasPanel>(this);
+	UCanvasPanel* RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>();
 	WidgetTree->RootWidget = RootCanvas;
 
-	UTextBlock* Title = NewObject<UTextBlock>(this);
-	Title->SetText(FText::FromString("PARAMOTOR SIM"));
+	UTextBlock* Title = WidgetTree->ConstructWidget<UTextBlock>();
+	Title->SetText(FText::FromString(TEXT("PARAMOTOR SIM")));
 	Title->SetJustification(ETextJustify::Center);
 	Title->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.85f, 0.4f, 1.0f)));
 	RootCanvas->AddChild(Title);
@@ -39,9 +36,9 @@ void UUW_MainMenu::NativeConstruct()
 		TitleSlot->SetOffsets(FMargin(-400.0f, -40.0f, 400.0f, 40.0f));
 	}
 
-	UButton* PlayButton = NewObject<UButton>(this);
-	UTextBlock* PlayText = NewObject<UTextBlock>(this);
-	PlayText->SetText(FText::FromString("PLAY"));
+	UButton* PlayButton = WidgetTree->ConstructWidget<UButton>();
+	UTextBlock* PlayText = WidgetTree->ConstructWidget<UTextBlock>();
+	PlayText->SetText(FText::FromString(TEXT("PLAY")));
 	PlayText->SetJustification(ETextJustify::Center);
 	PlayText->SetColorAndOpacity(FSlateColor(FLinearColor::White));
 	PlayButton->AddChild(PlayText);
@@ -57,9 +54,9 @@ void UUW_MainMenu::NativeConstruct()
 		PlaySlot->SetOffsets(FMargin(-150.0f, -25.0f, 150.0f, 25.0f));
 	}
 
-	UButton* QuitButton = NewObject<UButton>(this);
-	UTextBlock* QuitText = NewObject<UTextBlock>(this);
-	QuitText->SetText(FText::FromString("QUIT"));
+	UButton* QuitButton = WidgetTree->ConstructWidget<UButton>();
+	UTextBlock* QuitText = WidgetTree->ConstructWidget<UTextBlock>();
+	QuitText->SetText(FText::FromString(TEXT("QUIT")));
 	QuitText->SetJustification(ETextJustify::Center);
 	QuitText->SetColorAndOpacity(FSlateColor(FLinearColor::White));
 	QuitButton->AddChild(QuitText);
@@ -75,8 +72,8 @@ void UUW_MainMenu::NativeConstruct()
 		QuitSlot->SetOffsets(FMargin(-150.0f, -25.0f, 150.0f, 25.0f));
 	}
 
-	UTextBlock* WeatherTitle = NewObject<UTextBlock>(this);
-	WeatherTitle->SetText(FText::FromString("WEATHER"));
+	UTextBlock* WeatherTitle = WidgetTree->ConstructWidget<UTextBlock>();
+	WeatherTitle->SetText(FText::FromString(TEXT("WEATHER")));
 	WeatherTitle->SetJustification(ETextJustify::Center);
 	WeatherTitle->SetColorAndOpacity(FSlateColor(FLinearColor(0.7f, 0.9f, 1.0f, 1.0f)));
 	RootCanvas->AddChild(WeatherTitle);
@@ -86,28 +83,38 @@ void UUW_MainMenu::NativeConstruct()
 		WeatherSlot->SetOffsets(FMargin(-200.0f, -25.0f, 200.0f, 25.0f));
 	}
 
-	WindLabel = CreateSlider(RootCanvas, TEXT("Wind Speed"), 0.0f, 60.0f, GameInstanceRef->WindSpeed, 0.58f);
-	GustsLabel = CreateSlider(RootCanvas, TEXT("Gusts"), 0.0f, 30.0f, GameInstanceRef->WindGusts, 0.66f);
-	CloudLabel = CreateSlider(RootCanvas, TEXT("Cloud Cover"), 0.0f, 1.0f, GameInstanceRef->CloudCover, 0.74f);
-	TempLabel = CreateSlider(RootCanvas, TEXT("Temperature"), -20.0f, 45.0f, GameInstanceRef->Temperature, 0.82f);
-	TimeLabel = CreateSlider(RootCanvas, TEXT("Time of Day"), 0.0f, 24.0f, GameInstanceRef->TimeOfDay, 0.90f);
+	float WindSpeed   = IsValid(GameInstanceRef) ? GameInstanceRef->WindSpeed   : 0.0f;
+	float WindGusts   = IsValid(GameInstanceRef) ? GameInstanceRef->WindGusts   : 0.0f;
+	float CloudCover  = IsValid(GameInstanceRef) ? GameInstanceRef->CloudCover  : 0.25f;
+	float Temperature = IsValid(GameInstanceRef) ? GameInstanceRef->Temperature : 20.0f;
+	float Humidity    = IsValid(GameInstanceRef) ? GameInstanceRef->Humidity    : 60.0f;
+	float TimeOfDay   = IsValid(GameInstanceRef) ? GameInstanceRef->TimeOfDay   : 12.0f;
 
-	WindSlider->SetValue(GameInstanceRef->WindSpeed);
-	GustsSlider->SetValue(GameInstanceRef->WindGusts);
-	CloudSlider->SetValue(GameInstanceRef->CloudCover);
-	TempSlider->SetValue(GameInstanceRef->Temperature);
-	TimeSlider->SetValue(GameInstanceRef->TimeOfDay);
+	WindLabel     = CreateSlider(RootCanvas, TEXT("Wind Speed"),  0.0f, 60.0f, WindSpeed,   0.56f);
+	GustsLabel    = CreateSlider(RootCanvas, TEXT("Gusts"),       0.0f, 30.0f, WindGusts,   0.62f);
+	CloudLabel    = CreateSlider(RootCanvas, TEXT("Cloud Cover"), 0.0f, 1.0f,  CloudCover,  0.68f);
+	TempLabel     = CreateSlider(RootCanvas, TEXT("Temperature"), -20.0f, 45.0f, Temperature, 0.74f);
+	HumidityLabel = CreateSlider(RootCanvas, TEXT("Humidity"),    0.0f, 100.0f, Humidity,    0.80f);
+	TimeLabel     = CreateSlider(RootCanvas, TEXT("Time of Day"), 0.0f, 24.0f,  TimeOfDay,   0.86f);
+
+	WindSlider->SetValue(WindSpeed);
+	GustsSlider->SetValue(WindGusts);
+	CloudSlider->SetValue(CloudCover);
+	TempSlider->SetValue(Temperature);
+	HumiditySlider->SetValue(Humidity);
+	TimeSlider->SetValue(TimeOfDay);
 
 	WindSlider->OnValueChanged.AddDynamic(this, &UUW_MainMenu::OnWindSpeedChanged);
 	GustsSlider->OnValueChanged.AddDynamic(this, &UUW_MainMenu::OnWindGustsChanged);
 	CloudSlider->OnValueChanged.AddDynamic(this, &UUW_MainMenu::OnCloudCoverChanged);
 	TempSlider->OnValueChanged.AddDynamic(this, &UUW_MainMenu::OnTemperatureChanged);
+	HumiditySlider->OnValueChanged.AddDynamic(this, &UUW_MainMenu::OnHumidityChanged);
 	TimeSlider->OnValueChanged.AddDynamic(this, &UUW_MainMenu::OnTimeOfDayChanged);
 }
 
 UTextBlock* UUW_MainMenu::CreateSlider(UCanvasPanel* RootCanvas, const TCHAR* Name, float Min, float Max, float Value, float YPos)
 {
-	UTextBlock* Label = NewObject<UTextBlock>(this);
+	UTextBlock* Label = WidgetTree->ConstructWidget<UTextBlock>();
 	Label->SetText(FText::FromString(FString::Printf(TEXT("%s %.1f"), Name, Value)));
 	Label->SetColorAndOpacity(FSlateColor(FLinearColor::White));
 	RootCanvas->AddChild(Label);
@@ -117,7 +124,7 @@ UTextBlock* UUW_MainMenu::CreateSlider(UCanvasPanel* RootCanvas, const TCHAR* Na
 		LabelSlot->SetOffsets(FMargin(-300.0f, -25.0f, 300.0f, 25.0f));
 	}
 
-	USlider* Slider = NewObject<USlider>(this);
+	USlider* Slider = WidgetTree->ConstructWidget<USlider>();
 	Slider->SetMinValue(Min);
 	Slider->SetMaxValue(Max);
 	Slider->SetValue(Value);
@@ -132,6 +139,7 @@ UTextBlock* UUW_MainMenu::CreateSlider(UCanvasPanel* RootCanvas, const TCHAR* Na
 	else if (FString(Name) == TEXT("Gusts")) GustsSlider = Slider;
 	else if (FString(Name) == TEXT("Cloud Cover")) CloudSlider = Slider;
 	else if (FString(Name) == TEXT("Temperature")) TempSlider = Slider;
+	else if (FString(Name) == TEXT("Humidity")) HumiditySlider = Slider;
 	else if (FString(Name) == TEXT("Time of Day")) TimeSlider = Slider;
 
 	return Label;
@@ -140,43 +148,53 @@ UTextBlock* UUW_MainMenu::CreateSlider(UCanvasPanel* RootCanvas, const TCHAR* Na
 void UUW_MainMenu::OnPlayClicked()
 {
 	UWorld* World = GetWorld();
-	if (World)
+	if (IsValid(World))
 	{
-		UGameplayStatics::OpenLevel(World, FName("/Engine/Maps/Templates/Template_Default"));
+		UGameplayStatics::OpenLevel(World, FName(TEXT("L_Westerly")));
 	}
 }
 
 void UUW_MainMenu::OnQuitClicked()
 {
-	UKismetSystemLibrary::QuitGame(GetWorld(), nullptr, EQuitPreference::Quit, false);
+	UWorld* World = GetWorld();
+	if (IsValid(World))
+	{
+		UKismetSystemLibrary::QuitGame(World, nullptr, EQuitPreference::Quit, false);
+	}
 }
 
 void UUW_MainMenu::OnWindSpeedChanged(float Value)
 {
-	if (GameInstanceRef) GameInstanceRef->WindSpeed = Value;
-	if (WindLabel) WindLabel->SetText(FText::FromString(FString::Printf(TEXT("Wind Speed %.0f"), Value)));
+	if (IsValid(GameInstanceRef)) GameInstanceRef->WindSpeed = Value;
+	if (IsValid(WindLabel)) WindLabel->SetText(FText::FromString(FString::Printf(TEXT("Wind Speed %.0f"), Value)));
 }
 
 void UUW_MainMenu::OnWindGustsChanged(float Value)
 {
-	if (GameInstanceRef) GameInstanceRef->WindGusts = Value;
-	if (GustsLabel) GustsLabel->SetText(FText::FromString(FString::Printf(TEXT("Gusts %.0f"), Value)));
+	if (IsValid(GameInstanceRef)) GameInstanceRef->WindGusts = Value;
+	if (IsValid(GustsLabel)) GustsLabel->SetText(FText::FromString(FString::Printf(TEXT("Gusts %.0f"), Value)));
 }
 
 void UUW_MainMenu::OnCloudCoverChanged(float Value)
 {
-	if (GameInstanceRef) GameInstanceRef->CloudCover = Value;
-	if (CloudLabel) CloudLabel->SetText(FText::FromString(FString::Printf(TEXT("Cloud Cover %.2f"), Value)));
+	if (IsValid(GameInstanceRef)) GameInstanceRef->CloudCover = Value;
+	if (IsValid(CloudLabel)) CloudLabel->SetText(FText::FromString(FString::Printf(TEXT("Cloud Cover %.2f"), Value)));
 }
 
 void UUW_MainMenu::OnTemperatureChanged(float Value)
 {
-	if (GameInstanceRef) GameInstanceRef->Temperature = Value;
-	if (TempLabel) TempLabel->SetText(FText::FromString(FString::Printf(TEXT("Temperature %.0f"), Value)));
+	if (IsValid(GameInstanceRef)) GameInstanceRef->Temperature = Value;
+	if (IsValid(TempLabel)) TempLabel->SetText(FText::FromString(FString::Printf(TEXT("Temperature %.0f"), Value)));
+}
+
+void UUW_MainMenu::OnHumidityChanged(float Value)
+{
+	if (IsValid(GameInstanceRef)) GameInstanceRef->Humidity = Value;
+	if (IsValid(HumidityLabel)) HumidityLabel->SetText(FText::FromString(FString::Printf(TEXT("Humidity %.0f%%"), Value)));
 }
 
 void UUW_MainMenu::OnTimeOfDayChanged(float Value)
 {
-	if (GameInstanceRef) GameInstanceRef->TimeOfDay = Value;
-	if (TimeLabel) TimeLabel->SetText(FText::FromString(FString::Printf(TEXT("Time of Day %.0f"), Value)));
+	if (IsValid(GameInstanceRef)) GameInstanceRef->TimeOfDay = Value;
+	if (IsValid(TimeLabel)) TimeLabel->SetText(FText::FromString(FString::Printf(TEXT("Time of Day %.0f"), Value)));
 }

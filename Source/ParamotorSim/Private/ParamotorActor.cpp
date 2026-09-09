@@ -11,6 +11,7 @@
 #include "Sound/SoundBase.h"
 #include "Sound/SoundWave.h"
 #include "Misc/Paths.h"
+#include "DrawDebugHelpers.h"
 
 AParamotorActor::AParamotorActor()
 {
@@ -136,6 +137,84 @@ const TArray<FString> AParamotorActor::GetParamotorMeshPaths()
 
 void AParamotorActor::BuildParamotorMeshes()
 {
+	// If using the Rider 185, load the combined FBX mesh
+	if (bUseRider185)
+	{
+		UStaticMesh* RiderMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Meshes/SM_Rider_Moster185.SM_Rider_Moster185"));
+		if (RiderMesh)
+		{
+			UStaticMeshComponent* MeshComp = NewObject<UStaticMeshComponent>(this, TEXT("Rider185Mesh"));
+			MeshComp->SetupAttachment(Root);
+			MeshComp->SetStaticMesh(RiderMesh);
+			MeshComp->SetMobility(EComponentMobility::Movable);
+			MeshComp->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			MeshComp->SetCollisionResponseToAllChannels(ECR_Ignore);
+			MeshComp->RegisterComponent();
+			MeshComponents.Add(MeshComp);
+			UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Built Rider 185 mesh (%d verts)"), RiderMesh->GetNumVertices(0));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("ParamotorActor: Failed to load SM_Rider_Moster185 mesh!"));
+		}
+
+		// The Rider 185 mesh already contains the propeller and cage.
+		// TODO: separate propeller sub-mesh for real-time spinning.
+		return;
+	}
+
+	// If using the test frame, load the single combined mesh
+	if (bUseTestFrame)
+	{
+		UStaticMesh* TestMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Meshes/ParamotorTestFrame.ParamotorTestFrame"));
+		if (TestMesh)
+		{
+			UStaticMeshComponent* MeshComp = NewObject<UStaticMeshComponent>(this, TEXT("TestFrameMesh"));
+			MeshComp->SetupAttachment(Root);
+			MeshComp->SetStaticMesh(TestMesh);
+			MeshComp->SetMobility(EComponentMobility::Movable);
+			MeshComp->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			MeshComp->SetCollisionResponseToAllChannels(ECR_Ignore);
+			MeshComp->RegisterComponent();
+			MeshComponents.Add(MeshComp);
+			UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Built test frame mesh (%d verts)"), TestMesh->GetNumVertices(0));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("ParamotorActor: Failed to load ParamotorTestFrame mesh!"));
+		}
+
+		// Load the propeller as a separate rotating component
+		UStaticMesh* PropMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Meshes/ParamotorPropeller.ParamotorPropeller"));
+		if (PropMesh)
+		{
+			UStaticMeshComponent* PropComp = NewObject<UStaticMeshComponent>(this, TEXT("TestFramePropeller"));
+			PropComp->SetupAttachment(Root);
+			PropComp->SetStaticMesh(PropMesh);
+			PropComp->SetMobility(EComponentMobility::Movable);
+			PropComp->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			PropComp->SetCollisionResponseToAllChannels(ECR_Ignore);
+			// Pivot location in the test frame local space (Blender: 1.65 - 1.19 = 0.46m X, 0.85 - 0.65 = 0.20m Z)
+			// User adjusted: move up ~30", in 1 foot, plus 2" up
+			PropComp->SetRelativeLocation(FVector(16.0f, 0.0f, 85.0f));
+			PropComp->SetRelativeRotation(FQuat::Identity);
+			PropComp->RegisterComponent();
+			MeshComponents.Add(PropComp);
+			PropMeshes.Add(PropComp);
+			PropMeshBaseTransforms.Add(PropComp->GetRelativeTransform());
+			PropCenter = FVector(16.0f, 0.0f, 85.0f);
+			UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Built test frame propeller (%d verts)"), PropMesh->GetNumVertices(0));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("ParamotorActor: Failed to load ParamotorPropeller mesh!"));
+		}
+
+		// Test frame has all geometry baked in — skip A-arm hierarchy
+		// (those procedural components don't match the custom mesh and float in wrong positions)
+		return;
+	}
+
 	const TArray<FString> MeshPaths = GetParamotorMeshPaths();
 
 	for (int32 i = 0; i < MeshPaths.Num(); i++)
@@ -160,6 +239,7 @@ void AParamotorActor::BuildParamotorMeshes()
 		{
 			PropMeshes.Add(MeshComp);
 			PropMeshBaseTransforms.Add(MeshComp->GetRelativeTransform());  // Store base for rotation
+			PropCenter = FVector(15.0f, 0.0f, 73.0f);
 		}
 	}
 
@@ -175,6 +255,39 @@ void AParamotorActor::BuildParamotorMeshes()
 
 void AParamotorActor::BuildAArmHierarchy()
 {
+	// Find the stud mesh components (pivot attachment points on the frame)
+	UStaticMeshComponent* StudLeft = nullptr;
+	UStaticMeshComponent* StudRight = nullptr;
+	for (UStaticMeshComponent* Comp : MeshComponents)
+	{
+		if (!Comp) continue;
+		FString Name = Comp->GetName();
+		if (Name.Contains(TEXT("WingClip_Stud_Left"))) StudLeft = Comp;
+		else if (Name.Contains(TEXT("WingClip_Stud_Right"))) StudRight = Comp;
+	}
+
+	// Build both sides
+	AArmPivotLeft = BuildSingleAArmSide(true, StudLeft);
+	AArmPivotRight = BuildSingleAArmSide(false, StudRight);
+
+	// Capture the ring mesh's world-space offset from the pivot BEFORE any rotation.
+	if (RingMeshLeft && AArmPivotLeft)
+	{
+		FVector RingWorld = RingMeshLeft->Bounds.Origin;
+		FVector PivotWorld = AArmPivotLeft->GetComponentLocation();
+		CarabinerOffsetFromPivot = AArmPivotLeft->GetComponentTransform().InverseTransformPosition(RingWorld);
+		UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Carabiner offset from pivot = %s (RingWorld=%s PivotWorld=%s)"),
+			*CarabinerOffsetFromPivot.ToString(), *RingWorld.ToString(), *PivotWorld.ToString());
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Built A-arm hierarchy (L/R pivots + meshes)"));
+}
+
+USceneComponent* AParamotorActor::BuildSingleAArmSide(bool bLeft, USceneComponent* Stud)
+{
+	const FString Side = bLeft ? TEXT("Left") : TEXT("Right");
+	const FString SideShort = bLeft ? TEXT("L") : TEXT("R");
+
 	// Helper to load a mesh and create a component attached to a parent
 	auto LoadMeshComp = [&](const FString& AssetPath, const FString& CompName,
 		USceneComponent* Parent) -> UStaticMeshComponent*
@@ -195,100 +308,60 @@ void AParamotorActor::BuildAArmHierarchy()
 		return Comp;
 	};
 
-	// Find the stud mesh components (pivot attachment points on the frame)
-	UStaticMeshComponent* StudLeft = nullptr;
-	UStaticMeshComponent* StudRight = nullptr;
-	for (UStaticMeshComponent* Comp : MeshComponents)
-	{
-		if (!Comp) continue;
-		FString Name = Comp->GetName();
-		if (Name.Contains(TEXT("WingClip_Stud_Left"))) StudLeft = Comp;
-		else if (Name.Contains(TEXT("WingClip_Stud_Right"))) StudRight = Comp;
-	}
-
-	// === LEFT A-ARM HIERARCHY ===
 	// Pivot scene component attached to the stud (or root if stud not found)
-	AArmPivotLeft = NewObject<USceneComponent>(this, TEXT("AArmPivot_Left"));
-	AArmPivotLeft->SetupAttachment(StudLeft ? (USceneComponent*)StudLeft : Root);
-	AArmPivotLeft->SetMobility(EComponentMobility::Movable);
-	AArmPivotLeft->RegisterComponent();
+	USceneComponent* Pivot = NewObject<USceneComponent>(this, FName(*FString::Printf(TEXT("AArmPivot_%s"), *SideShort)));
+	Pivot->SetupAttachment(Stud ? Stud : Root);
+	Pivot->SetMobility(EComponentMobility::Movable);
+	Pivot->RegisterComponent();
 
-	// A-arm mesh attached to pivot
-	AArmMeshLeft = LoadMeshComp(TEXT("/Game/Meshes/AArm_Left.AArm_Left"), TEXT("AArmMesh_Left"), AArmPivotLeft);
-	// Ring at bottom of A-arm
-	RingMeshLeft = LoadMeshComp(TEXT("/Game/Meshes/WingClip_Ring_Left.WingClip_Ring_Left"), TEXT("RingMesh_Left"), AArmPivotLeft);
-	// Carabiner clips through ring
-	CarabinerMeshLeft = LoadMeshComp(TEXT("/Game/Meshes/Carabiner_Left.Carabiner_Left"), TEXT("CarabinerMesh_Left"), AArmPivotLeft);
-	// Riser webbing straps (from carabiner toward wing)
-	// NOTE: SM_RiserLines is a static mesh of the ENTIRE line set (9m wide),
-	// not just the 49cm riser strap. It can't follow the wing, so we hide it
-	// and let the procedural line mesh handle all line rendering.
-	RiserMeshLeft = LoadMeshComp(TEXT("/Game/Meshes/SM_RiserLines.SM_RiserLines"), TEXT("RiserMesh_Left"), AArmPivotLeft);
-	if (RiserMeshLeft) RiserMeshLeft->SetVisibility(false);
-	// Brake toggle handle
-	BrakeToggleMeshLeft = LoadMeshComp(TEXT("/Game/Meshes/BrakeToggle_Left.BrakeToggle_Left"), TEXT("BrakeToggle_Left"), AArmPivotLeft);
+	// A-arm mesh, ring, carabiner, riser, brake toggle, quick links
+	UStaticMeshComponent* AArmMesh = LoadMeshComp(
+		FString::Printf(TEXT("/Game/Meshes/AArm_%s.AArm_%s"), *Side, *Side),
+		FString::Printf(TEXT("AArmMesh_%s"), *SideShort), Pivot);
+	UStaticMeshComponent* RingMesh = LoadMeshComp(
+		FString::Printf(TEXT("/Game/Meshes/WingClip_Ring_%s.WingClip_Ring_%s"), *Side, *Side),
+		FString::Printf(TEXT("RingMesh_%s"), *SideShort), Pivot);
+	UStaticMeshComponent* CarabinerMesh = LoadMeshComp(
+		FString::Printf(TEXT("/Game/Meshes/Carabiner_%s.Carabiner_%s"), *Side, *Side),
+		FString::Printf(TEXT("CarabinerMesh_%s"), *SideShort), Pivot);
+	// SM_RiserLines is the entire line set (9m wide), not just the 49cm riser strap.
+	// Hidden — procedural line mesh handles all line rendering.
+	UStaticMeshComponent* RiserMesh = LoadMeshComp(
+		TEXT("/Game/Meshes/SM_RiserLines.SM_RiserLines"),
+		FString::Printf(TEXT("RiserMesh_%s"), *SideShort), Pivot);
+	if (RiserMesh) RiserMesh->SetVisibility(false);
+	UStaticMeshComponent* BrakeToggleMesh = LoadMeshComp(
+		FString::Printf(TEXT("/Game/Meshes/BrakeToggle_%s.BrakeToggle_%s"), *Side, *Side),
+		FString::Printf(TEXT("BrakeToggle_%s"), *SideShort), Pivot);
+
 	// Quick links (A/B/C/D)
-	QuickLinkMeshes.Add(TEXT("A_Left"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_A_Left.QuickLink_A_Left"), TEXT("QuickLink_A_Left"), AArmPivotLeft));
-	QuickLinkMeshes.Add(TEXT("B_Left"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_B_Left.QuickLink_B_Left"), TEXT("QuickLink_B_Left"), AArmPivotLeft));
-	QuickLinkMeshes.Add(TEXT("C_Left"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_C_Left.QuickLink_C_Left"), TEXT("QuickLink_C_Left"), AArmPivotLeft));
-	QuickLinkMeshes.Add(TEXT("D_Left"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_D_Left.QuickLink_D_Left"), TEXT("QuickLink_D_Left"), AArmPivotLeft));
-
-	// === RIGHT A-ARM HIERARCHY ===
-	AArmPivotRight = NewObject<USceneComponent>(this, TEXT("AArmPivot_Right"));
-	AArmPivotRight->SetupAttachment(StudRight ? (USceneComponent*)StudRight : Root);
-	AArmPivotRight->SetMobility(EComponentMobility::Movable);
-	AArmPivotRight->RegisterComponent();
-
-	AArmMeshRight = LoadMeshComp(TEXT("/Game/Meshes/AArm_Right.AArm_Right"), TEXT("AArmMesh_Right"), AArmPivotRight);
-	RingMeshRight = LoadMeshComp(TEXT("/Game/Meshes/WingClip_Ring_Right.WingClip_Ring_Right"), TEXT("RingMesh_Right"), AArmPivotRight);
-	CarabinerMeshRight = LoadMeshComp(TEXT("/Game/Meshes/Carabiner_Right.Carabiner_Right"), TEXT("CarabinerMesh_Right"), AArmPivotRight);
-	RiserMeshRight = LoadMeshComp(TEXT("/Game/Meshes/SM_RiserLines.SM_RiserLines"), TEXT("RiserMesh_Right"), AArmPivotRight);
-	if (RiserMeshRight) RiserMeshRight->SetVisibility(false);
-	BrakeToggleMeshRight = LoadMeshComp(TEXT("/Game/Meshes/BrakeToggle_Right.BrakeToggle_Right"), TEXT("BrakeToggle_Right"), AArmPivotRight);
-	QuickLinkMeshes.Add(TEXT("A_Right"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_A_Right.QuickLink_A_Right"), TEXT("QuickLink_A_Right"), AArmPivotRight));
-	QuickLinkMeshes.Add(TEXT("B_Right"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_B_Right.QuickLink_B_Right"), TEXT("QuickLink_B_Right"), AArmPivotRight));
-	QuickLinkMeshes.Add(TEXT("C_Right"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_C_Right.QuickLink_C_Right"), TEXT("QuickLink_C_Right"), AArmPivotRight));
-	QuickLinkMeshes.Add(TEXT("D_Right"), LoadMeshComp(TEXT("/Game/Meshes/QuickLink_D_Right.QuickLink_D_Right"), TEXT("QuickLink_D_Right"), AArmPivotRight));
-
-	// Capture the ring mesh's world-space offset from the pivot BEFORE any rotation.
-	// The ring mesh has no relative location offset (geometry is baked into the asset),
-	// so we must compute the offset from the bounds origin relative to the pivot.
-	if (RingMeshLeft && AArmPivotLeft)
+	for (const TCHAR* Level : { TEXT("A"), TEXT("B"), TEXT("C"), TEXT("D") })
 	{
-		FVector RingWorld = RingMeshLeft->Bounds.Origin;
-		FVector PivotWorld = AArmPivotLeft->GetComponentLocation();
-		CarabinerOffsetFromPivot = AArmPivotLeft->GetComponentTransform().InverseTransformPosition(RingWorld);
-		UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Carabiner offset from pivot = %s (RingWorld=%s PivotWorld=%s)"),
-			*CarabinerOffsetFromPivot.ToString(), *RingWorld.ToString(), *PivotWorld.ToString());
+		FString Key = FString::Printf(TEXT("%s_%s"), Level, *Side);
+		QuickLinkMeshes.Add(Key, LoadMeshComp(
+			FString::Printf(TEXT("/Game/Meshes/QuickLink_%s_%s.QuickLink_%s_%s"), Level, *Side, Level, *Side),
+			FString::Printf(TEXT("QuickLink_%s_%s"), Level, *Side), Pivot));
 	}
 
-	// Log all A-arm component relative positions and bounds for debugging
-	auto LogComp = [](UStaticMeshComponent* Comp, const TCHAR* Label) {
-		if (!Comp) return;
-		FVector RelLoc = Comp->GetRelativeLocation();
-		FVector BoundsOrigin = Comp->Bounds.Origin;
-		FVector BoxExtent = Comp->Bounds.BoxExtent;
-		UE_LOG(LogTemp, Warning, TEXT("RISERDEBUG %s: RelLoc=%s BoundsOrigin=%s BoxExtent=%s"),
-			Label, *RelLoc.ToString(), *BoundsOrigin.ToString(), *BoxExtent.ToString());
-	};
-	LogComp(AArmMeshLeft, TEXT("AArmMesh_L"));
-	LogComp(RingMeshLeft, TEXT("RingMesh_L"));
-	LogComp(CarabinerMeshLeft, TEXT("CarabinerMesh_L"));
-	LogComp(RiserMeshLeft, TEXT("RiserMesh_L"));
-	LogComp(BrakeToggleMeshLeft, TEXT("BrakeToggle_L"));
-	if (AArmPivotLeft)
+	// Assign to the correct member variables
+	if (bLeft)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("RISERDEBUG AArmPivot_L: RelLoc=%s WorldLoc=%s"),
-			*AArmPivotLeft->GetRelativeLocation().ToString(), *AArmPivotLeft->GetComponentLocation().ToString());
+		AArmMeshLeft = AArmMesh;
+		RingMeshLeft = RingMesh;
+		CarabinerMeshLeft = CarabinerMesh;
+		RiserMeshLeft = RiserMesh;
+		BrakeToggleMeshLeft = BrakeToggleMesh;
+	}
+	else
+	{
+		AArmMeshRight = AArmMesh;
+		RingMeshRight = RingMesh;
+		CarabinerMeshRight = CarabinerMesh;
+		RiserMeshRight = RiserMesh;
+		BrakeToggleMeshRight = BrakeToggleMesh;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: Built A-arm hierarchy (L/R pivots + meshes)"));
-}
-
-void AParamotorActor::UpdateWingTarget(const FVector& WingWorldPos, bool bConnected)
-{
-	// No-op: A-arms no longer track wing position (caused wild swinging).
-	// Kept for API compatibility with WingActor::Tick.
+	return Pivot;
 }
 
 void AParamotorActor::UpdateAArmPivots()
@@ -318,7 +391,8 @@ void AParamotorActor::InitAudio()
 
 	if (StarterSound)
 	{
-		// Enable looping on the starter sound wave so it plays continuously while cranking
+		// Set looping on the sound wave so the starter plays continuously while cranking.
+		// UE5 UAudioComponent doesn't expose a looping flag, so this is set on the asset.
 		if (USoundWave* StarterWave = Cast<USoundWave>(StarterSound))
 		{
 			StarterWave->bLooping = true;
@@ -353,7 +427,6 @@ void AParamotorActor::BeginPlay()
 void AParamotorActor::UpdatePropMeshRotation()
 {
 	FQuat PropQuat = FQuat(FVector::ForwardVector, PropRotation);
-	FVector PropCenter = FVector(15.0f, 0.0f, 73.0f);
 	for (int32 i = 0; i < PropMeshes.Num(); i++)
 	{
 		if (i >= PropMeshBaseTransforms.Num()) break;
@@ -399,9 +472,14 @@ void AParamotorActor::Tick(float DeltaTime)
 		PropRotation += PropOmega * DeltaTime;
 		UpdatePropMeshRotation();
 
+		// Draw thrust-direction arrow from the propeller hub in the direction the pilot is pushed.
+		FVector PropWorldPos = GetActorTransform().TransformPosition(PropCenter);
+		FVector ThrustDir = GetActorForwardVector();
+		DrawDebugDirectionalArrow(GetWorld(), PropWorldPos, PropWorldPos + ThrustDir * 300.0f, 60.0f, FColor::Green, false, 0.0f, 0, 6.0f);
+
 		UpdateEngineAudio();
 	}
-	else
+	else if (EngineState == EEngineState::Off)
 	{
 		UpdateEngineSpoolDown(DeltaTime);
 	}
@@ -583,14 +661,41 @@ void AParamotorActor::Interact(AParamotorCharacter* PlayerCharacter)
 {
 	if (bEquipped || !PlayerCharacter) return;
 
-	USceneComponent* AttachTarget = PlayerCharacter->GetMesh();
-	if (!AttachTarget) AttachTarget = PlayerCharacter->GetRootComponent();
+	USkeletalMeshComponent* CharacterMesh = PlayerCharacter->GetMesh();
+	if (!CharacterMesh)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ParamotorActor: No character mesh!"));
+		return;
+	}
 
-	FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, false);
+	if (bUseTestFrame || bUseRider185)
+	{
+		// Bone attachment — follows the body during movement/animation
+		FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, false);
+		FName AttachBone = TEXT("spine_02");
+		if (CharacterMesh->GetBoneIndex(AttachBone) == INDEX_NONE)
+		{
+			// Fall back to mesh root if bone not found
+			UE_LOG(LogTemp, Warning, TEXT("ParamotorActor: spine_02 not found, falling back to mesh root"));
+			AttachToComponent(CharacterMesh, AttachRules);
+		}
+		else
+		{
+			AttachToComponent(CharacterMesh, AttachRules, AttachBone);
+		}
 
-	AttachToComponent(AttachTarget, AttachRules);
-	SetActorRelativeLocation(FVector(0.0f, -25.0f, 40.0f));
-	SetActorRelativeRotation(FRotator(0.0f, 270.0f, 0.0f));
+		// Offset/rotation that put the paramotor in the correct position on the back
+		SetActorRelativeLocation(FVector(-60.0f, 120.0f, 0.0f));
+		SetActorRelativeRotation(FRotator(0.0f, -90.0f, 90.0f));
+	}
+	else
+	{
+		// Original procedural paramotor — attach to mesh root as before
+		FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, false);
+		AttachToComponent(CharacterMesh, AttachRules);
+		SetActorRelativeLocation(FVector(0.0f, -25.0f, 40.0f));
+		SetActorRelativeRotation(FRotator(0.0f, 270.0f, 0.0f));
+	}
 
 	bEquipped = true;
 	PromptWidget->SetVisibility(false);
@@ -625,6 +730,25 @@ bool AParamotorActor::GetCarabinerWorldPositions(FVector& OutLeft, FVector& OutR
 	{
 		OutLeft = RingMeshLeft->Bounds.Origin;
 		OutRight = RingMeshRight->Bounds.Origin;
+		return true;
+	}
+
+	// Test frame / Rider 185 fallback: compute carabiner positions from the paramotor actor's
+	// own world position. These are single meshes with no A-arm hierarchy,
+	// so we derive carabiner positions from the actor location + character right vector.
+	if (bUseTestFrame || bUseRider185)
+	{
+		FVector ActorLoc = GetActorLocation();
+		// Get the parent actor (character) to determine facing direction
+		FVector Right = FVector::RightVector;
+		AActor* ParentActor = GetAttachParentActor();
+		if (ParentActor)
+		{
+			Right = ParentActor->GetActorRightVector();
+		}
+		float CarabHalfSpacing = 21.0f;  // ~42cm total spacing
+		OutLeft = ActorLoc + Right * -CarabHalfSpacing;
+		OutRight = ActorLoc + Right * CarabHalfSpacing;
 		return true;
 	}
 

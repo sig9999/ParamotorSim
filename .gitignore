@@ -32,3 +32,6 @@ Content/MetaHumans/Hightops/OA_Hightop.uasset
 *_backup.cpp
 *.bak
 *_cpp.bak
+
+# Raw terrain/imagery working data (19GB, kept locally + zip backups)
+TerrainData/

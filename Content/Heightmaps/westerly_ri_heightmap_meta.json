@@ -1,0 +1,29 @@
+{
+  "source": "USGS 1/3 arc-second DEM (n42w072, 20240130)",
+  "area": {
+    "west": -71.87,
+    "south": 41.28,
+    "east": -71.6,
+    "north": 41.38,
+    "width_km": 22.56990543500518,
+    "height_km": 11.132000000000158
+  },
+  "heightmap": {
+    "width": 4097,
+    "height": 2049,
+    "file": "westerly_ri_heightmap.png",
+    "format": "16-bit PNG (uint16)"
+  },
+  "elevation": {
+    "min_m": -1.9966505765914917,
+    "max_m": 63.086570739746094,
+    "top_m": 69.39522781372071,
+    "ue5_z_scale_m": 69.39522781372071,
+    "ue5_z_offset_m": 0.0
+  },
+  "ue5_import": {
+    "resolution": "4097 x 2049",
+    "z_scale": 69.39522781372071,
+    "note": "In UE5 Landscape import, set Z Scale to the elevation top value"
+  }
+}

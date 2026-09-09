@@ -47,12 +47,6 @@ public:
 	virtual FAnimInstanceProxy* CreateAnimInstanceProxy() override { return &Proxy; }
 	virtual void DestroyAnimInstanceProxy(FAnimInstanceProxy* InProxy) override {} // Prevent delete of member variable
 
-	// Called by the character to set brake handle targets
-	void SetBrakeArmData(bool bLeftActive, bool bRightActive,
-		FVector LeftTarget, FVector RightTarget,
-		float LeftRaise, float RightRaise,
-		float LeftPull, float RightPull);
-
 	// Called by the character to play a specific animation
 	void PlaySequence(UAnimSequence* Anim, bool bLooping);
 
@@ -66,4 +60,8 @@ private:
 	// Cached owning character
 	UPROPERTY()
 	AParamotorCharacter* OwningCharacter = nullptr;
+
+	// Strong reference so the animation asset is not garbage collected
+	UPROPERTY()
+	UAnimSequence* CurrentAnim = nullptr;
 };
