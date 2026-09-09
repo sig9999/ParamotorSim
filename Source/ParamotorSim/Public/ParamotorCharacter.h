@@ -89,12 +89,9 @@ private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Mesh", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class USkeletalMeshComponent> HeadMesh = nullptr;
 
-	// Clothing components (techwear outfit + shoes)
+	// Clothing components (techwear outfit)
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Mesh", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class USkeletalMeshComponent> OutfitMesh = nullptr;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Mesh", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<class USkeletalMeshComponent> ShoesMesh = nullptr;
 
 	UPROPERTY()
 	TObjectPtr<class UAnimSequence> WalkIdleAnim = nullptr;

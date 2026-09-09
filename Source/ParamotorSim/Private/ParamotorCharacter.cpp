@@ -54,34 +54,6 @@ AParamotorCharacter::AParamotorCharacter()
 	OutfitMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	OutfitMesh->SetSimulatePhysics(false);
 
-	// === CLOTHING: Hightop shoes ===
-	// The Hightop shoes are standard MetaHuman skeletal meshes (not Chaos Outfit).
-	// They're skinned to metahuman_base_skel and come in male/female body variants.
-	// Try male medium narrow first, then female, then overweight variants.
-	ShoesMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("ShoesMesh"));
-	// Try male medium narrow first (most common paramotor pilot build)
-	static ConstructorHelpers::FObjectFinder<USkeletalMesh> ShoesFinder(TEXT("/Game/Hightop/meshes/m_med_nrw_shs_hightop.m_med_nrw_shs_hightop"));
-	if (ShoesFinder.Succeeded())
-	{
-		ShoesMesh->SetSkeletalMesh(ShoesFinder.Object);
-	}
-	else
-	{
-		// Try female medium narrow
-		static ConstructorHelpers::FObjectFinder<USkeletalMesh> ShoesFinderF(TEXT("/Game/Hightop/meshes/f_med_nrw_shs_hightop.f_med_nrw_shs_hightop"));
-		if (ShoesFinderF.Succeeded())
-		{
-			ShoesMesh->SetSkeletalMesh(ShoesFinderF.Object);
-		}
-	}
-	ShoesMesh->SetupAttachment(GetMesh());
-	ShoesMesh->SetRelativeTransform(FTransform::Identity);
-	ShoesMesh->SetLeaderPoseComponent(GetMesh());
-	ShoesMesh->SetVisibility(true);
-	ShoesMesh->SetHiddenInGame(false);
-	ShoesMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	ShoesMesh->SetSimulatePhysics(false);
-
 	// Leave animation asset loading for BeginPlay so we can load the original plugin clips.
 
 	GetCharacterMovement()->MaxWalkSpeed = 140.0f;  // 1.4 m/s = 3.1 mph (normal walking pace)
@@ -163,21 +135,10 @@ void AParamotorCharacter::LoadCharacterMesh()
 		GetMesh()->SetSkeletalMesh(ClothedBody);
 		UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: Replaced body mesh with techwear CombinedSkelMesh: %s"), *ClothedBody->GetName());
 		if (OutfitMesh) OutfitMesh->SetVisibility(false);
-		if (ShoesMesh) ShoesMesh->SetVisibility(false);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: Techwear CombinedSkelMesh not found — trying Hightop for shoes only"));
-		if (ShoesMesh && !ShoesMesh->GetSkeletalMeshAsset())
-		{
-			USkeletalMesh* ShoeSkel = LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Hightop/meshes/m_med_nrw_CombinedSkelMesh.m_med_nrw_CombinedSkelMesh"));
-			if (ShoeSkel)
-			{
-				ShoesMesh->SetSkeletalMesh(ShoeSkel);
-				ShoesMesh->SetLeaderPoseComponent(GetMesh());
-				UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: Hightop CombinedSkelMesh loaded for shoes: %s"), *ShoeSkel->GetName());
-			}
-		}
+		UE_LOG(LogTemp, Warning, TEXT("ParamotorCharacter: Techwear CombinedSkelMesh not found"));
 	}
 }
 
