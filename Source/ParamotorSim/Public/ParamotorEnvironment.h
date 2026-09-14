@@ -12,7 +12,7 @@ class ASkyLight;
 class AExponentialHeightFog;
 class ASkyAtmosphere;
 class APostProcessVolume;
-class AStaticMeshActor;
+class AParamotorOceanSystem;
 
 /** Runtime world environment: sky, sun, fog, post-processing, ocean water,
  *  ambient audio, under-map plane. Spawned by the GameMode in BeginPlay —
@@ -34,7 +34,6 @@ public:
 private:
 	void SetupSkyAndLighting();
 	void SetupPostProcessing();
-	void SetupWater();
 	void SetupAmbientAudio();
 	void SetupUnderMapPlane();
 
@@ -59,10 +58,8 @@ private:
 	UPROPERTY()
 	APostProcessVolume* PostProcessVol = nullptr;
 
-	UPROPERTY()
-	AStaticMeshActor* WaterPlane = nullptr;
-
 	// The ocean lives in its own system (waves, sea states, weather drive).
-	class AParamotorOceanSystem* OceanSys = nullptr;
+	UPROPERTY()
+	AParamotorOceanSystem* OceanSys = nullptr;
 	float OceanUpdateTimer = 0.0f;
 };

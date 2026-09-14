@@ -1,3 +1,66 @@
+## Session 50 — Technical-debt audit (read-only) + behavior-neutral cleanup
+
+Repo-wide debt audit run in parallel with the pilot-appearance and
+equipment-architecture passes. Scope was deliberately narrow: only changes
+whose behavior equivalence is provable by inspection were applied; everything
+else is recorded below as debt.
+
+### Audit scope
+Dead/stale declarations, tick cost, asset loading, Development/Shipping
+boundary, logging verbosity, pointer lifetime, duplicated constants, config
+and map routing, `Build.cs` dependencies, `Ps*` exec-command registration,
+doc accuracy.
+
+### Safe fixes applied
+- `ParamotorEnvironment.h` — dropped `SetupWater()` and `WaterPlane`; neither
+  had a definition or a single reference anywhere in the module (the ocean
+  moved to `AParamotorOceanSystem`). `OceanSys` is now a `UPROPERTY()` so the
+  spawned ocean actor is GC-visible instead of a bare raw pointer.
+- `LandCoverService.h` — removed `TilesMutex`; never locked anywhere. Tile
+  assembly runs on the game thread via HTTP completion callbacks, so no
+  synchronization was lost.
+- `ForestScatter.h` / `SandDebrisScatter.h` — `CachedPawn` is now a
+  `UPROPERTY()`. It was cached once and never refreshed, so a destroyed or
+  respawned pawn left a dangling raw pointer that `Repopulate()` dereferences.
+  GC now nulls it and the existing `if (!CachedPawn)` re-fetch reacquires it;
+  scatter output is unchanged while the pawn lives.
+- `ParamotorOceanSystem.cpp` — the 3-second `Ocean dbg:` wave sample is now
+  `#if !UE_BUILD_SHIPPING`. Development/Editor keep it; the sampled call is a
+  pure query, so Shipping loses only the log line.
+
+### Deliberately not changed
+- All flight/cloth/line/engine/prop/turbulence code and constants.
+- Cesium settling, globe traces, vegetation/surface semantics, sand runtime.
+- MetaHuman/garment assets and their docs (Agent #1), equipment definitions
+  and `AParamotorActor` asset mappings (Agent #2).
+- Dev file-pipe (`C:\DevinTools\ps_cmd.txt`) — already correctly gated behind
+  `#if WITH_EDITOR || UE_BUILD_DEVELOPMENT`.
+
+### Current technical debt (documented, not fixed)
+- 28 `UFUNCTION(Exec) Ps*` commands compile into Shipping. All have matching
+  definitions and no duplicates; gating them out needs a Shipping build to
+  verify and was left alone.
+- ~116 synchronous `ConstructorHelpers`/`LoadObject`/`LoadSynchronous` sites.
+  Most are constructor- or setup-time; the runtime ones inside `SpawnCell`
+  re-resolve the same static mesh/material per cell.
+- `AParamotorGameMode::Tick` rebuilds class-name `FString`s, re-runs
+  `GetAllActorsOfClass`, and re-traces terrain each settle frame.
+- Unused constants `LATITUDE_DEG`/`DALR`/`MALR`/`VK_CONST` (`AtmosphereModel.h`),
+  `BobPhase` (`ParamotorActor.h`), `FlightLogTimer` (`WingActor.h`) — all in
+  protected physics/equipment headers.
+- `ParamotorSandSystem` caches `CachedPawn`/`Ocean`/`SurfSvc` as raw pointers.
+- `PARAMOTOR_PHYSICS.md` exists at the repo root and under `docs/` with
+  divergent content; neither is a strict superset.
+- `docs/ARCHITECTURE_MAP.md` still says no `SK_Pilot_*` garments were
+  generated, but the assets are in `Content/Characters/PilotMale/Clothing`.
+  Left for Agent #1, who owns that area.
+
+### Build results
+Not run — this machine has no UE 5.8 install and no Cesium plugin, so
+Development and Shipping builds and the smoke test are outstanding. All edits
+are header-level declaration removals, `UPROPERTY()` annotations, and one
+preprocessor gate; they need a compile before merge.
+
 ## Session 49 — Custom skinned garments (shirt/pants/boots) + pilot front-view verification
 
 The pilot is now fully clothed: generated skinned T-shirt, cargo pants, and

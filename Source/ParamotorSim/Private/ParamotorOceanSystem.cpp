@@ -425,6 +425,7 @@ void AParamotorOceanSystem::Tick(float DeltaTime)
 
 	if (!Gen || !Waves) return;
 
+#if !UE_BUILD_SHIPPING
 	// Debug: sample the CPU wave field — if this never varies, the
 	// generator produced nothing; if it varies but the surface looks flat,
 	// the break is in the GPU/material path.
@@ -437,6 +438,7 @@ void AParamotorOceanSystem::Tick(float DeltaTime)
 		UE_LOG(LogParamotor, Log, TEXT("Ocean dbg: waves=%d maxH=%.1fcm sample=%.1fcm"),
 			Gen->NumWaves, Waves->GetMaxWaveHeight(), H);
 	}
+#endif
 
 	RecomputeTimer -= DeltaTime;
 	if (RecomputeTimer <= 0.0f)

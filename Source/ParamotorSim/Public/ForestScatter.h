@@ -8,6 +8,7 @@
 
 class UInstancedStaticMeshComponent;
 class UStaticMesh;
+class APawn;
 
 /**
  * AForestScatter — runtime tree scatter driven by a forest-density grid
@@ -67,6 +68,7 @@ private:
 	// One ISM per live cell.
 	TMap<FCellKey, UInstancedStaticMeshComponent*> LiveCells;
 	float RepopulateTimer = 0.0f;
+	UPROPERTY()
 	APawn* CachedPawn = nullptr;
 
 	uint8 DensityAt(int32 C, int32 R) const;
