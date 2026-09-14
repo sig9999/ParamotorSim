@@ -7,6 +7,7 @@
 #include "SandDebrisScatter.generated.h"
 
 class UInstancedStaticMeshComponent;
+class APawn;
 
 /**
  * ASandDebrisScatter — micro debris (pebbles/shell bits) scattered on the
@@ -37,6 +38,7 @@ private:
 
 	TMap<FCellKey, UInstancedStaticMeshComponent*> LiveCells;
 	float RepopulateTimer = 0.0f;
+	UPROPERTY()
 	APawn* CachedPawn = nullptr;
 
 	const float CellCm = 30000.0f;    // 300m cells

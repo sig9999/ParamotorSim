@@ -104,7 +104,6 @@ private:
 	};
 
 	TMap<FTileKey, TSharedPtr<FTile>> Tiles;
-	FCriticalSection TilesMutex;
 
 	FTileKey KeyFor(double Lat, double Lon) const;
 	void KickFetch(const FTileKey& Key);
