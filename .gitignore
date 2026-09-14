@@ -10,7 +10,7 @@ Binaries/
 DerivedDataCache/
 Intermediate/
 Saved/
-Build/
+/Build/
 Plugins/*/Binaries/
 Plugins/*/Intermediate/
 
@@ -19,10 +19,9 @@ Plugins/*/Intermediate/
 Thumbs.db
 .DS_Store
 
-# Large MetaHuman assets (too big for git, use separate storage)
+# Large MetaHuman source packages (kept locally; required runtime exports use LFS)
 Content/MHC_Frey.uasset
 Content/MetaHumans/MHC_Frey/MHC_Frey.uasset
-Content/Frey_Exported/MHC_Frey_Head.uasset
 Content/OA_Hightop.uasset
 Content/MetaHumans/Hightops/OA_Hightop.uasset
 # LFS storage
@@ -35,3 +34,9 @@ Content/MetaHumans/Hightops/OA_Hightop.uasset
 
 # Raw terrain/imagery working data (19GB, kept locally + zip backups)
 TerrainData/
+
+# Cesium plugin binaries (installed per-machine, not committed)
+Plugins/CesiumForUnreal/
+
+# Cesium runtime request cache
+cesium-request-cache.sqlite*

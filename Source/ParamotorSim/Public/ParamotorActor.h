@@ -1,3 +1,5 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
 #pragma once
 
 #include "CoreMinimal.h"
@@ -27,6 +29,7 @@ public:
 
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
+	virtual void Destroyed() override;
 
 	// Called by the player controller when F is pressed while overlapping
 	void Interact(class AParamotorCharacter* PlayerCharacter);
@@ -42,6 +45,7 @@ public:
 	float GetThrottle() const { return Throttle; }
 	EEngineState GetEngineState() const { return EngineState; }
 	float GetEngineRPM() const { return EngineRPM; }
+	float GetRedlineRPM() const { return EngineRedlineRPM; }
 	float GetEngineTemp() const { return EngineTemp; }
 	float GetFuelLevel() const { return FuelLevel; }
 	float GetTotalRunTime() const { return TotalRunTime; }
@@ -49,13 +53,28 @@ public:
 	bool IsFuelCutoffOn() const { return bFuelCutoff; }
 	void ToggleFuelCutoff();
 
-	// When true, load the single test frame mesh instead of individual parts
+	// When true, mount the real Codex part Blueprints (Amaruk frame, EOS
+	// engine, PT130 prop, PowerSeat harness) instead of the procedural body
+	// meshes. Rigging (A-arms, rings, carabiners, risers) stays procedural —
+	// the wing physics reads carabiner positions from it.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Paramotor")
-	bool bUseTestFrame = false;
+	bool bUseCodexBuild = false;
 
-	// When true, load the Rider Moster 185 mesh
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Paramotor")
-	bool bUseRider185 = false;
+	// Engine tuning from the equipped hangar build — ratio vs the 25hp
+	// Moster 185 baseline the blade-element model was tuned on.
+	UPROPERTY(BlueprintReadOnly, Category = "Paramotor")
+	float PowerScale = 1.0f;
+
+	// Mass of the assembled rig in kg (parts + fuel) — the wing adds this to
+	// pilot weight for takeoff/flight math.
+	UPROPERTY(BlueprintReadOnly, Category = "Paramotor")
+	float RigMassKg = 30.0f;
+
+	float GetParamotorMassKg() const { return RigMassKg; }
+
+	/** Pull engine/prop/frame/harness specs out of the game instance's
+	 *  CurrentBuild and configure power + mass. Call before FinishSpawning. */
+	void ConfigureFromBuild(class UParamotorGameInstance* GI);
 
 	// === REAL PROPULSION API ===
 	// Compute actual thrust force in Newtons based on RPM, propeller model, and airspeed
@@ -64,6 +83,11 @@ public:
 	float GetThrustForceN(float AirspeedMs = 0.0f) const;
 	// Get propeller RPM (separate from engine RPM via reduction ratio)
 	float GetPropRPM() const;
+
+	/** World transform of the spinning prop (Codex prop actor when present,
+	 *  else the actor transform). Used by prop-wash ground effects. */
+	UFUNCTION(BlueprintPure)
+	FTransform GetPropTransform() const;
 	// Get engine power output in Watts
 	float GetEnginePowerW() const;
 	// Get propeller absorbed torque in N·m (from blade element theory)
@@ -80,6 +104,29 @@ protected:
 	// Root scene component
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Paramotor")
 	USceneComponent* Root = nullptr;
+
+	// === HANG SWING ===
+	// The harness welds to the body; the frame+engine+prop hang under this
+	// pivot (shoulder-strap height) and swing like a damped pendulum —
+	// lean-back under acceleration, sway in turns, settle at rest.
+	UPROPERTY()
+	USceneComponent* HangPivot = nullptr;
+
+	// The harness part actor (CodexPartActors[3]) — offset is tunable.
+	UPROPERTY()
+	AActor* CodexHarnessActor = nullptr;
+
+	FVector HangPivotLoc = FVector(0.0f, 0.0f, 42.0f);  // Root-space hang point
+	FVector HarnessOffset = FVector(8.0f, 0.0f, -4.0f);  // Harness fit offset
+	FRotator HarnessRotOffset = FRotator::ZeroRotator;
+	float HangSwingK = 55.0f;       // Pendulum stiffness
+	float HangSwingC = 9.0f;        // Damping
+	float HangSwingMax = 16.0f;     // Max swing angle (deg)
+	FVector2D HangAng = FVector2D::ZeroVector;  // Smoothed (pitch, roll) deg
+	FVector2D HangVel = FVector2D::ZeroVector;
+	FVector PrevPilotVel = FVector::ZeroVector;
+	bool bHasPrevPilotVel = false;
+	void UpdateHangSwing(float DeltaTime);
 
 	// Interaction sphere
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Paramotor")
@@ -172,6 +219,10 @@ protected:
 	float PropRotation = 0.0f;    // Current prop angle (radians)
 	float StarterTimer = 0.0f;    // Time since starter began
 	float EngineRPM = 0.0f;       // Current RPM (smoothed)
+
+	// Per-engine rev limits — set from the selected engine spec at build time
+	float EngineIdleRPM = 2500.0f;
+	float EngineRedlineRPM = 7800.0f;
 	float EngineTemp = 20.0f;     // Engine temperature (Celsius), starts at ambient
 	float FuelLevel = 1.0f;       // Fuel level (0 to 1), starts full
 	float TotalRunTime = 0.0f;    // Total engine run time (seconds)
@@ -193,6 +244,24 @@ protected:
 
 	// Load and attach all paramotor mesh parts
 	void BuildParamotorMeshes();
+
+	// Spawn the Codex part Blueprints onto Root using the same frame-space
+	// transforms as the hangar builder. Used when bUseCodexBuild is set.
+	void BuildCodexVisuals();
+
+	// Spawned Codex part actors (frame, engine, prop, harness)
+	UPROPERTY()
+	TArray<AActor*> CodexPartActors;
+
+	// The Codex prop actor — spun in UpdatePropMeshRotation.
+	UPROPERTY()
+	AActor* CodexPropActor = nullptr;
+	FQuat CodexPropBaseRot = FQuat::Identity;
+
+	// Equip pose + walk-cycle bob state (codex build bounces with the player)
+	FVector EquipBaseLoc = FVector::ZeroVector;
+	FRotator EquipBaseRot = FRotator::ZeroRotator;
+	float BobPhase = 0.0f;
 
 	// Build the A-arm pivot hierarchy (frame → stud → pivot → A-arm → ring → carabiner → risers)
 	void BuildAArmHierarchy();

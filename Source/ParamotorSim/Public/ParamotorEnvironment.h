@@ -61,4 +61,8 @@ private:
 
 	UPROPERTY()
 	AStaticMeshActor* WaterPlane = nullptr;
+
+	// The ocean lives in its own system (waves, sea states, weather drive).
+	class AParamotorOceanSystem* OceanSys = nullptr;
+	float OceanUpdateTimer = 0.0f;
 };

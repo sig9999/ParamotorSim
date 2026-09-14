@@ -34,4 +34,39 @@ public:
 	/** Log per-section triangle counts + material for a static mesh (leaf debugging). */
 	UFUNCTION(BlueprintCallable, Category = "Landscape Import")
 	static void DumpMeshSections(const FString& MeshAssetPath);
+
+	/** Connect a material expression output to Pixel Depth Offset — the enum
+	 *  isn't exposed to Python's MaterialProperty list. */
+	UFUNCTION(BlueprintCallable, Category = "Landscape Import")
+	static bool ConnectPixelDepthOffset(class UMaterial* Mat, class UMaterialExpression* Expr);
+
+	/** One-shot: parent the ocean MI on the plugin Water_Material, enable foam/
+	    transition/caustics, apply coastal water colors, update the permutation. */
+	UFUNCTION(BlueprintCallable, Category = "Landscape Import")
+	static bool ConfigureOceanInstance(class UMaterialInstanceConstant* MI);
+
+	/** Add a scalar parameter to a Material Parameter Collection if missing.
+	 *  Python can't create FGuid-initialized collection params. */
+	UFUNCTION(BlueprintCallable, Category = "Landscape Import")
+	static bool AddCollectionScalar(class UMaterialParameterCollection* MPC, const FString& Name, float DefaultValue);
+
+	/** Add a vector parameter to a Material Parameter Collection if missing. */
+	UFUNCTION(BlueprintCallable, Category = "Landscape Import")
+	static bool AddCollectionVector(class UMaterialParameterCollection* MPC, const FString& Name);
+
+	/** Log every expression class in a material + whether WorldPositionOffset
+	    is already connected. For inspecting materials Python can't read. */
+	UFUNCTION(BlueprintCallable, Category = "Landscape Import")
+	static void DumpMaterialGraph(class UMaterial* Mat);
+
+	/** Delete CollectionParameter expressions whose ParameterId is unbound
+	    (left by a crashed sink run — they fail material compilation). */
+	UFUNCTION(BlueprintCallable, Category = "Landscape Import")
+	static int32 PruneInvalidCollectionParams(class UMaterial* Mat);
+
+	/** Wire the sand-sink WPO into the landscape material: inside the deform
+	    window the landscape drops by (deform - SinkCm) so it can't poke
+	    through the detailed sand overlay. Safe to call repeatedly. */
+	UFUNCTION(BlueprintCallable, Category = "Landscape Import")
+	static bool EnsureLandscapeSandSink(class UMaterial* Mat);
 };

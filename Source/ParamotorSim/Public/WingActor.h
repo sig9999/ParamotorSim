@@ -1,3 +1,5 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
 #pragma once
 
 #include "CoreMinimal.h"
@@ -71,29 +73,6 @@ enum class EWingState : uint8
 	Inflated,
 	Flying,
 	Collapsed,
-};
-
-// ============================================================
-// Verlet cloth particle
-// ============================================================
-struct FClothParticle
-{
-	FVector Pos;
-	FVector OldPos;
-	bool bPinned;
-	bool bGrabbed;
-	// GrabTarget removed (was unused)
-};
-
-// ============================================================
-// Distance constraint
-// ============================================================
-struct FClothConstraint
-{
-	int32 A;
-	int32 B;
-	float RestLength;
-	float Stiffness;
 };
 
 // ============================================================
@@ -267,51 +246,6 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wing")
 	UProceduralMeshComponent* CanopyMesh = nullptr;
 
-	// Real riser mesh (loaded from SM_Risers_Both.uasset, exported from charger_full.blend)
-	UPROPERTY()
-	UStaticMeshComponent* RiserMeshComponent = nullptr;
-
-	// Cached riser mesh bounds (computed once at init from actual mesh geometry)
-	FVector RiserMeshBoundsCenter = FVector::ZeroVector;
-	FVector RiserMeshBoundsExtent = FVector::ZeroVector;
-	bool bRiserBoundsCached = false;
-
-	// Test wing state: 0=deflated, 1=inflated (smooth transition)
-	float TestWingInflation = 0.0f;
-	// Whether the procedural mesh sections have been created (avoid recreating every frame)
-	bool bTestWingCanopyCreated = false;
-	bool bTestWingLinesCreated = false;
-	// Cached line mesh vertex count (for UpdateMeshSection)
-	int32 TestWingLineMeshVertCount = 0;
-	// Test wing line particles (simplified Verlet for real lines)
-	struct FTestLineParticle { FVector Pos; FVector OldPos; bool bPinned; };
-	TArray<FTestLineParticle> TestLineParticles;
-	// Test wing line segments (pairs of particle indices)
-	TArray<int32> TestLineSegments;
-	// Test wing line rest lengths
-	TArray<float> TestLineRestLengths;
-	// Test wing line colors
-	TArray<FLinearColor> TestLineColors;
-
-	// Pre-computed canopy mesh data (created once, reused every frame — INSTANCE members, not static)
-	TArray<FVector> TWC_Verts;
-	TArray<FVector> TWC_Normals;
-	TArray<FVector2D> TWC_UVs;
-	TArray<FProcMeshTangent> TWC_Tangents;
-	TArray<TArray<int32>> TWC_MatTris;
-	TArray<FLinearColor> TWC_MatColors;
-
-	// Pre-computed line mesh data (created once, reused every frame)
-	TArray<int32> TWL_Tris;
-	TArray<FLinearColor> TWL_Colors;
-	TArray<FProcMeshTangent> TWL_Tangents;
-	TArray<FVector2D> TWL_UVs;
-
-	// Pre-computed line-to-canopy attachments (which canopy particle each line top follows)
-	TArray<int32> TWL_TopCanopyIdx;
-	TArray<bool> TWL_IsMain;
-	TArray<bool> TWL_IsLeft;
-
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Wing")
 	UStaticMeshComponent* BagMesh = nullptr;
 
@@ -411,7 +345,6 @@ protected:
 
 	// Get trimmer-adjusted values for physics
 	float GetTrimmerAoAOffset() const;   // Degrees: + = higher AoA (slow), - = lower (fast)
-	float GetTrimmerPitchOffset() const; // Wing pitch offset (deg): + = hangs back (slow)
 	float GetTrimmerCollapseRisk() const;// Multiplier for collapse risk
 
 	// Brake state
@@ -473,11 +406,6 @@ protected:
 	// Wing specs are now in WingModel struct above
 	float OswaldEfficiency = 0.90f;    // Oswald efficiency factor (modern paraglider)
 
-	// === Cloth Simulation ===
-	TArray<FClothParticle> Particles;
-	TArray<FVector> TargetPositions;  // Spring-coupled target shape for cloth particles
-	TArray<FClothConstraint> Constraints;
-
 	// === Materials ===
 	UPROPERTY()
 	UMaterialInterface* CanopyMaterial = nullptr;
@@ -486,20 +414,6 @@ protected:
 	// CanopyMID removed (was unused)
 	// WingLight removed (was unused)
 
-	// === Functions ===
-	// === MacPara Charger (real data from MacParaChargerData.h) ===
-	void InitTestWingCloth();            // Create particles from real MPC vertices
-	void InitTestWingLines();            // Create line particles from real MPCL line endpoints
-	void InitTestWingMeshes();           // Create procedural mesh sections ONCE (performance)
-	void InitCanopyMeshSection();        // Create canopy procedural mesh from MPC data
-	void InitLineMeshSection();          // Create line tube procedural mesh from MPCL data
-	void InitRiserMeshComponent();       // Load and position real riser static mesh
-	void SimulateTestWingCloth(float DeltaTime);  // Verlet cloth on real mesh
-	void SimulateTestWingLines(float DeltaTime);  // Line sag/tension on real lines
-	void UpdateTestWingCanopyMesh();     // Update canopy vertex positions (no recreation)
-	void UpdateTestWingLineMesh();       // Update line vertex positions (no recreation)
-	void SetTestWingDeflated();          // Collapse cloth to ground (deflated state)
-	void SetTestWingLinesDeflated();     // Collapse line particles to pile near canopy
 	void SetSpreadState();
 
 	float GetGroundZ(FVector Pos) const;
@@ -543,48 +457,9 @@ public:
 	float GetDewPoint() const { return DewPointC; }
 protected:
 
-	// === TICK HELPER ===
-	void TickTestWing(float DeltaTime);
-
-	// === TICK SUB-HELPERS (split from TickTestWing) ===
-	void UpdateConnectedState(float DeltaTime);  // Line tension drag, yaw, inflation transition
-	void UpdateRiserMesh();                      // Position riser mesh at carabiners or line bottoms
-
 	// === INIT HELPERS (split from BeginPlay) ===
 	void LoadMaterials();                        // Load canopy + line materials
 
-	// === FLIGHT MODE HELPER ===
+	// === FLIGHT MODE HELPER (legacy base — Charger manages flight itself) ===
 	void EnterFlightMode(ACharacter* Char);      // Disable CMC, set up flight rotation
-
-	// === FLIGHT PHYSICS ===
-	void UpdateFlight(float DeltaTime);
-	void CheckTakeoff(float DeltaTime);
-
-	// === FLIGHT PHYSICS HELPERS (split from UpdateFlight) ===
-	// Intermediate flight computation state shared between helpers.
-	struct FFlightCtx
-	{
-		float Vms = 0.0f;             // Horizontal airspeed (m/s)
-		float AoA = 0.0f;             // Angle of attack (deg)
-		float CL = 0.0f;             // Lift coefficient
-		float CDtotal = 0.0f;        // Total drag coefficient
-		float TotalBrake = 0.0f;     // Average brake 0-1
-		float Rho = 1.225f;          // Air density at altitude
-		float AltitudeM = 0.0f;      // Altitude above ground (m)
-		float TotalLiftN = 0.0f;     // Total lift force (N)
-		float TotalDragN = 0.0f;     // Total drag force (N)
-		float ThrustN = 0.0f;        // Engine thrust (N)
-		float TotalMassKg = 0.0f;    // Pilot + wing mass (kg)
-		FVector ApparentHoriz = FVector::ZeroVector;  // Horizontal apparent wind (cm/s)
-		FVector ApparentDir = FVector::ForwardVector;  // Normalized apparent wind dir
-		FVector ShiftedWindDir = FVector::ForwardVector; // Wind dir with turbulence shift
-		FVector NewVel = FVector::ZeroVector;  // Integrated velocity (cm/s)
-	};
-	void ComputeAeroState(FFlightCtx& Ctx, FVector Vel, float DeltaTime, FVector PawnLoc);
-	void ComputeForces(FFlightCtx& Ctx);
-	void IntegrateForces(FFlightCtx& Ctx, FVector Vel, float DeltaTime, FVector PawnLoc);
-	void UpdatePendulumAndSteering(float DeltaTime);
-	void UpdatePilotOrientation(APawn* Pawn, ACharacter* Char, float DeltaTime);
-	void HandleLanding(APawn* Pawn, ACharacter* Char, UCharacterMovementComponent* CMC, FFlightCtx& Ctx, FVector& NewLoc, float DeltaTime);
-	void UpdateWingTransform(FFlightCtx& Ctx, FVector PilotLoc, float DeltaTime);
 };

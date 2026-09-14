@@ -1,3 +1,5 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
 #pragma once
 
 #include "CoreMinimal.h"
@@ -44,9 +46,6 @@ public:
 	// Heal injury over time (called in Tick)
 	void HealInjury(float DeltaTime);
 
-	// Full heal (e.g. on respawn or menu action)
-	void ClearInjury();
-
 	// Set brake arm targets (for arm IK reaching to brake handles)
 	void SetBrakeArmTargets(bool bLeftActive, bool bRightActive, FVector LeftTarget, FVector RightTarget,
 		bool bLeftBraking = false, bool bRightBraking = false);
@@ -63,6 +62,17 @@ public:
 	float RightArmPull = 0.0f;
 	bool bLeftBrakePulling = false;   // Q held — pull left arm down
 	bool bRightBrakePulling = false;  // E held — pull right arm down
+
+	// Seated blend — lerps toward 1 while the wing is flying (the "butt
+	// slide" into the harness seat). Read by the anim instance.
+	float SitAmount = 0.0f;
+	// Kiting blend — connected, wing pressurized/overhead, still on the
+	// ground. Drives the braced lean-into-the-lines posture.
+	float KiteAmount = 0.0f;
+	// Airborne blend (no wing lift) — jump/fall pose. AirTuck follows
+	// vertical speed: knees tuck rising, legs extend falling.
+	float AirAmount = 0.0f;
+	float AirTuck = 0.0f;
 
 	// === WEIGHT SHIFT (A/D keys while flying) ===
 	// A = shift left (lowers left riser → turns left)
@@ -93,11 +103,63 @@ private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Mesh", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class USkeletalMeshComponent> OutfitMesh = nullptr;
 
+	// === PILOT GEAR (Session 48 appearance pass) ===
+	// Grooms — hair + facial grooms bound to the MetaHuman head mesh.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Groom", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UGroomComponent> HairGroom = nullptr;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Groom", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UGroomComponent> EyebrowGroom = nullptr;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Groom", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UGroomComponent> EyelashGroom = nullptr;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Groom", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UGroomComponent> MustacheGroom = nullptr;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Groom", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UGroomComponent> PeachfuzzGroom = nullptr;
+
+	// PPG helmet — authored in body-component space, attached to the head bone
+	// with the ref-pose inverse so it tracks head animation exactly.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Helmet", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UStaticMeshComponent> HelmetComp = nullptr;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Helmet", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UStaticMeshComponent> VisorComp = nullptr;
+
+	// Modular skinned garments (custom T-shirt / work pants / boots) — leader-posed
+	// to the body mesh. Populated by LoadPilotGear when the assets exist.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Clothing", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class USkeletalMeshComponent> ShirtMesh = nullptr;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Clothing", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class USkeletalMeshComponent> PantsMesh = nullptr;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Clothing", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class USkeletalMeshComponent> BootsMesh = nullptr;
+
+public:
+	// Simple dev toggles used by PsHelmet/PsVisor console commands.
+	void SetHelmetOn(bool bOn);
+	bool IsHelmetOn() const { return bHelmetOn; }
+	void SetVisorUp(bool bUp);
+	bool IsVisorUp() const { return bVisorUp; }
+
+private:
+	bool bHelmetOn = true;
+	bool bVisorUp = false;
+
 	UPROPERTY()
 	TObjectPtr<class UAnimSequence> WalkIdleAnim = nullptr;
 
 	UPROPERTY()
 	TObjectPtr<class UAnimSequence> WalkAnimAsset = nullptr;
+	UPROPERTY()
+	TObjectPtr<class UAnimSequence> WalkBackAnimAsset = nullptr;
+	UPROPERTY()
+	TObjectPtr<class UAnimSequence> WalkLeftAnimAsset = nullptr;
+	UPROPERTY()
+	TObjectPtr<class UAnimSequence> WalkRightAnimAsset = nullptr;
+	UPROPERTY()
+	TObjectPtr<class UAnimSequence> JogBackAnimAsset = nullptr;
+	UPROPERTY()
+	TObjectPtr<class UAnimSequence> JogLeftAnimAsset = nullptr;
+	UPROPERTY()
+	TObjectPtr<class UAnimSequence> JogRightAnimAsset = nullptr;
 
 	UPROPERTY()
 	TObjectPtr<class UAnimSequence> JogAnimAsset = nullptr;
@@ -135,6 +197,8 @@ private:
 
 	// Footstep timing
 	float FootstepTimer = 0.0f;
+
+	// Sand footprints — stamp per footstep on the beach band.
 
 	// Trip/fall state
 	bool bIsFallen = false;
@@ -183,6 +247,7 @@ private:
 	void LoadCharacterMesh();       // Replace body with techwear CombinedSkelMesh
 	void LoadAnimations();          // Load anim assets and set up anim instance
 	void ApplySkinTone();           // Apply skin material to head and body
+	void LoadPilotGear();           // Grooms + helmet + modular garments
 	void LoadFootstepSounds();      // Load footstep sound banks
 	void LoadAmbientAudio();        // Start wind and fall sounds
 	void UpdateThrustGroundPhysics(float DeltaTime, UCharacterMovementComponent* CMC, float EffectiveMaxSpeed, bool bOnGround, bool bThrustActive, class AParamotorPlayerController* PC);
@@ -190,7 +255,7 @@ private:
 	void ApplyThrustRunningBoost(float DeltaTime, UCharacterMovementComponent* CMC, class AParamotorPlayerController* PC);
 	void UpdateThrustAirPhysics(float DeltaTime, UCharacterMovementComponent* CMC, bool bThrustActive, bool bOnGround, bool bWingFlying, class AParamotorPlayerController* PC);
 	void UpdatePostureLean(float DeltaTime, UCharacterMovementComponent* CMC, class AParamotorPlayerController* PC);
-	void UpdateAnimationState(float DeltaTime, UCharacterMovementComponent* CMC);
+	void UpdateAnimationState(float DeltaTime, UCharacterMovementComponent* CMC, AParamotorPlayerController* PC);
 	void UpdateFootstepAudio(float DeltaTime, UCharacterMovementComponent* CMC);
 	void UpdateWindAudio();
 	void UpdateTripRisk(float DeltaTime, UCharacterMovementComponent* CMC, class AParamotorPlayerController* PC);

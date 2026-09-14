@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ParamotorEnvironment.h"
+#include "ParamotorLogging.h"
 #include "ParamotorGameInstance.h"
 #include "Components/AudioComponent.h"
 #include "Sound/SoundBase.h"
@@ -14,8 +15,7 @@
 #include "Engine/DirectionalLight.h"
 #include "Engine/SkyLight.h"
 #include "Engine/ExponentialHeightFog.h"
-#include "WaterZoneActor.h"
-#include "WaterBodyOceanActor.h"
+#include "ParamotorOceanSystem.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/DirectionalLightComponent.h"
@@ -33,21 +33,39 @@ void AParamotorEnvironment::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// On Cesium globe maps the ocean uses the geoid-disc path (no WaterZone).
+	bool bGlobeMap = false;
+	{
+		UClass* GeoClass = FindObject<UClass>(nullptr, TEXT("/Script/CesiumRuntime.CesiumGeoreference"));
+		if (GeoClass)
+		{
+			TArray<AActor*> Geos;
+			UGameplayStatics::GetAllActorsOfClass(GetWorld(), GeoClass, Geos);
+			bGlobeMap = Geos.Num() > 0;
+		}
+	}
+
 	SetupSkyAndLighting();
 	SetupPostProcessing();
-	SetupWater();
-	SetupAmbientAudio();
-	SetupUnderMapPlane();
+	// The ocean is its own system — waves, sea states, weather drive.
+	// On the globe it builds the geoid-curved MSL disc instead of WaterZone.
+	OceanSys = GetWorld()->SpawnActor<AParamotorOceanSystem>(FVector::ZeroVector, FRotator::ZeroRotator);
+	if (OceanSys) OceanSys->Setup();
+	if (!bGlobeMap)
+	{
+		SetupAmbientAudio();
+		SetupUnderMapPlane();
+	}
 
 	// Ocean is to the south (negative Y). Sea breeze blows north (+Y).
-	UE_LOG(LogTemp, Warning, TEXT("Env: Coastline = ocean south (180 deg), sea breeze blows north"));
+	UE_LOG(LogParamotor, Log, TEXT("Env: Coastline = ocean south (180 deg), sea breeze blows north"));
 
 	float TimeH = 12.0f;
 	if (UParamotorGameInstance* GI = GetWorld()->GetGameInstance<UParamotorGameInstance>())
 		TimeH = GI->TimeOfDay;
 	UpdateSunPosition(TimeH);
 
-	UE_LOG(LogTemp, Warning, TEXT("Env: Environment setup complete"));
+	UE_LOG(LogParamotor, Log, TEXT("Env: Environment setup complete"));
 }
 
 void AParamotorEnvironment::Tick(float DeltaTime)
@@ -55,6 +73,18 @@ void AParamotorEnvironment::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 	if (UParamotorGameInstance* GI = GetWorld()->GetGameInstance<UParamotorGameInstance>())
 		UpdateSunPosition(GI->TimeOfDay);
+
+	// Sea state follows the live wind — re-evaluate cheaply on a timer.
+	OceanUpdateTimer -= DeltaTime;
+	if (OceanUpdateTimer <= 0.0f)
+	{
+		OceanUpdateTimer = 2.0f;
+		if (OceanSys)
+		{
+			UParamotorGameInstance* GI = GetWorld()->GetGameInstance<UParamotorGameInstance>();
+			if (GI) OceanSys->UpdateFromWeather(GI->WindSpeed, GI->WindDirection, GI->WindGusts);
+		}
+	}
 }
 
 void AParamotorEnvironment::SetupSkyAndLighting()
@@ -122,10 +152,12 @@ void AParamotorEnvironment::SetupSkyAndLighting()
 		if (FogComp)
 		{
 			FogComp->SetMobility(EComponentMobility::Movable);
-			FogComp->FogDensity = 0.005f;
-			FogComp->FogHeightFalloff = 0.002f;
+			// Clear maritime day — ~20 km visual range. 0.005 was ~95%
+			// extinction at 600 m and washed the Newport Bridge to white.
+			FogComp->FogDensity = 0.0004f;
+			FogComp->FogHeightFalloff = 0.01f;
 			FogComp->FogMaxOpacity = 0.9f;
-			FogComp->StartDistance = 5000.0f;
+			FogComp->StartDistance = 10000.0f;
 			FogComp->FogCutoffDistance = 2000000.0f;
 			FogComp->FogInscatteringLuminance = FLinearColor(0.6f, 0.7f, 0.85f, 1.0f);
 			FogComp->DirectionalInscatteringExponent = 4.0f;
@@ -135,7 +167,7 @@ void AParamotorEnvironment::SetupSkyAndLighting()
 			FogComp->VolumetricFogScatteringDistribution = 0.8f;
 			FogComp->VolumetricFogAlbedo = FColor(230, 230, 230, 255);
 			FogComp->VolumetricFogEmissive = FLinearColor::Black;
-			FogComp->VolumetricFogExtinctionScale = 1.0f;
+			FogComp->VolumetricFogExtinctionScale = 0.6f;
 		}
 	}
 }
@@ -245,85 +277,6 @@ void AParamotorEnvironment::SetupPostProcessing()
 		S.ScreenSpaceReflectionIntensity = 1.0f;
 		S.ScreenSpaceReflectionQuality = 50.0f;
 		S.ScreenSpaceReflectionMaxRoughness = 0.6f;
-	}
-}
-
-void AParamotorEnvironment::SetupWater()
-{
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-	// Prefer the Water plugin (real waves + shoreline) when a landscape exists.
-	{
-		TArray<AActor*> Existing;
-		UGameplayStatics::GetAllActorsOfClass(GetWorld(), ALandscapeProxy::StaticClass(), Existing);
-		if (Existing.Num() > 0)
-		{
-			// WaterZone defines where water is rendered — cover the whole 20x12km map
-			AWaterZone* Zone = GetWorld()->SpawnActor<AWaterZone>(FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
-			if (Zone)
-			{
-				Zone->SetZoneExtent(FVector2D(2500000.0, 1500000.0));  // ~25km x 15km coverage
-				// Water collision volumes span the whole zone and would swallow the pawn
-				for (UActorComponent* C : Zone->GetComponents())
-				{
-					if (UPrimitiveComponent* P = Cast<UPrimitiveComponent>(C))
-					{
-						P->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
-						P->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
-						P->SetCollisionResponseToChannel(ECC_Visibility, ECR_Ignore);
-					}
-				}
-			}
-			// Ocean water body at sea level — fills everywhere the terrain dips below Z=0
-			AWaterBodyOcean* Ocean = GetWorld()->SpawnActor<AWaterBodyOcean>(FVector(0.0f, 0.0f, 0.0f), FRotator::ZeroRotator, SpawnParams);
-			if (Ocean)
-			{
-				for (UActorComponent* C : Ocean->GetComponents())
-				{
-					if (UPrimitiveComponent* P = Cast<UPrimitiveComponent>(C))
-					{
-						P->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
-						P->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
-						P->SetCollisionResponseToChannel(ECC_Visibility, ECR_Ignore);
-					}
-				}
-				UE_LOG(LogTemp, Warning, TEXT("Env: WaterBodyOcean spawned at Z=0"));
-				return;
-			}
-			UE_LOG(LogTemp, Warning, TEXT("Env: WaterBodyOcean spawn failed — falling back to water plane"));
-		}
-	}
-
-	UStaticMesh* PlaneMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
-	if (!PlaneMesh) return;
-
-	// Fallback: flat water plane at sea level (slightly below 0 to avoid z-fighting)
-	FVector WaterLoc(0.0f, 0.0f, -15.0f);
-	WaterPlane = GetWorld()->SpawnActor<AStaticMeshActor>(WaterLoc, FRotator::ZeroRotator, SpawnParams);
-	if (WaterPlane)
-	{
-		WaterPlane->GetStaticMeshComponent()->SetStaticMesh(PlaneMesh);
-		WaterPlane->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
-		WaterPlane->SetActorScale3D(FVector(8000.0f, 8000.0f, 1.0f));  // 80km x 80km
-		WaterPlane->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-
-		// Try water material, fall back to dark blue
-		UMaterialInterface* WaterMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/M_Water.M_Water"));
-		if (WaterMat)
-		{
-			WaterPlane->GetStaticMeshComponent()->SetMaterial(0, WaterMat);
-		}
-		else
-		{
-			UMaterial* BaseMat = LoadObject<UMaterial>(nullptr, TEXT("/Engine/EngineMaterials/WorldGridMaterial.WorldGridMaterial"));
-			if (BaseMat)
-			{
-				UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(BaseMat, WaterPlane);
-				if (DynMat) DynMat->SetVectorParameterValue(FName("Color"), FLinearColor(0.05f, 0.15f, 0.25f, 0.9f));
-				if (DynMat) WaterPlane->GetStaticMeshComponent()->SetMaterial(0, DynMat);
-			}
-		}
 	}
 }
 

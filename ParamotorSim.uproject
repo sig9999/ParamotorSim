@@ -1,13 +1,13 @@
 {
 	"FileVersion": 3,
 	"EngineAssociation": "5.8",
-	"Category": "",
-	"Description": "",
+	"Category": "Games",
+	"Description": "A paramotor flight simulator - real manufacturer hardware, real terrain, live weather.",
 	"Modules": [
 		{
 			"Name": "ParamotorSim",
 			"Type": "Runtime",
-			"LoadingPhase": "Default"
+			"LoadingPhase": "PostConfigInit"
 		}
 	],
 	"Plugins": [
@@ -63,7 +63,15 @@
 			"Enabled": true
 		},
 		{
+			"Name": "CesiumForUnreal",
+			"Enabled": true
+		},
+		{
 			"Name": "Landmass",
+			"Enabled": true
+		},
+		{
+			"Name": "HDRIBackdrop",
 			"Enabled": true
 		}
 	]

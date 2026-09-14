@@ -4,9 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
-#include "Components/CanvasPanel.h"
-#include "Components/Slider.h"
-#include "Components/TextBlock.h"
+#include "Engine/Texture2D.h"
 #include "UW_MainMenu.generated.h"
 
 UCLASS()
@@ -15,71 +13,44 @@ class PARAMOTORSIM_API UUW_MainMenu : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	virtual void NativeConstruct() override;
+	UUW_MainMenu(const FObjectInitializer& ObjectInitializer);
+	virtual void NativeOnInitialized() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+
+protected:
+	UPROPERTY()
+	TObjectPtr<UTexture2D> MenuBackgroundTexture;
 
 protected:
 	UFUNCTION()
-	void OnPlayClicked();
+	void OnMenuItemClicked(int32 Index);
+
+	UFUNCTION()
+	void OnMenuItemHovered(int32 Index);
 
 	UFUNCTION()
 	void OnQuitClicked();
 
-	UFUNCTION()
-	void OnWindSpeedChanged(float Value);
-
-	UFUNCTION()
-	void OnWindGustsChanged(float Value);
-
-	UFUNCTION()
-	void OnCloudCoverChanged(float Value);
-
-	UFUNCTION()
-	void OnTemperatureChanged(float Value);
-
-	UFUNCTION()
-	void OnHumidityChanged(float Value);
-
-	UFUNCTION()
-	void OnTimeOfDayChanged(float Value);
-
-	UTextBlock* CreateSlider(UCanvasPanel* RootCanvas, const TCHAR* Name, float Min, float Max, float Value, float YPos);
+	void UpdateDetailPanel(int32 Index);
 
 	UPROPERTY()
-	class UParamotorGameInstance* GameInstanceRef = nullptr;
+	class UCanvasPanel* RootCanvas = nullptr;
 
 	UPROPERTY()
-	UTextBlock* WindLabel = nullptr;
+	class UTextBlock* DetailKicker = nullptr;
 
 	UPROPERTY()
-	UTextBlock* GustsLabel = nullptr;
+	class UTextBlock* DetailTitle = nullptr;
 
 	UPROPERTY()
-	UTextBlock* CloudLabel = nullptr;
+	class UTextBlock* DetailDesc = nullptr;
 
 	UPROPERTY()
-	UTextBlock* TempLabel = nullptr;
+	class UTextBlock* DetailFeat = nullptr;
 
 	UPROPERTY()
-	UTextBlock* HumidityLabel = nullptr;
+	class UBorder* DetailPanel = nullptr;
 
-	UPROPERTY()
-	UTextBlock* TimeLabel = nullptr;
-
-	UPROPERTY()
-	USlider* WindSlider = nullptr;
-
-	UPROPERTY()
-	USlider* GustsSlider = nullptr;
-
-	UPROPERTY()
-	USlider* CloudSlider = nullptr;
-
-	UPROPERTY()
-	USlider* TempSlider = nullptr;
-
-	UPROPERTY()
-	USlider* HumiditySlider = nullptr;
-
-	UPROPERTY()
-	USlider* TimeSlider = nullptr;
+	// Entry-point fade-in on menu open.
+	float FadeElapsed = 0.0f;
 };

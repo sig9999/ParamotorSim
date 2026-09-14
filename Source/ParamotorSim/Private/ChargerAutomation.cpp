@@ -1,3 +1,5 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 #include "ChargerWingActor.h"
@@ -17,6 +19,9 @@ bool FChargerFreshSmoke::RunTest(const FString&){
  auto* Motor=W->SpawnActor<AParamotorActor>(FVector(0,0,100),FRotator::ZeroRotator);
  Motor->AttachToActor(Char,FAttachmentTransformRules::KeepWorldTransform);
  auto* Wing=W->SpawnActor<AChargerWingActor>(FVector(-500,0,5),FRotator::ZeroRotator);
+ // WindHeadingDegrees is meteorological "wind FROM". Heading 0 (from +X)
+ // makes air move -X — headwind for the +X-facing pilot and wing.
+ Wing->WindHeadingDegrees=0.0f;
  W->BeginPlay();
  if(!Wing->HasActorBegunPlay())Wing->DispatchBeginPlay();
  TestEqual(TEXT("Fresh wing starts spread"),Wing->GetWingState(),EWingState::Spread);

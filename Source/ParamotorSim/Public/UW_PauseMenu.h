@@ -15,6 +15,7 @@ class UCanvasPanel;
 class USlider;
 class UCheckBox;
 class UScrollBox;
+class UImage;
 
 UCLASS()
 class PARAMOTORSIM_API UUW_PauseMenu : public UUserWidget
@@ -28,10 +29,10 @@ public:
 protected:
 	// === CLICK HANDLERS ===
 	UFUNCTION() void OnResumeClicked();
+	UFUNCTION() void OnMainMenuClicked();
 	UFUNCTION() void OnQuitClicked();
 	UFUNCTION() void OnSpawnTestWingClicked();
-	UFUNCTION() void OnSpawnTestParamotorClicked();
-	UFUNCTION() void OnSpawnRider185Clicked();
+	UFUNCTION() void OnSpawnParamotorClicked();
 	UFUNCTION() void OnClearSpawnedClicked();
 
 	UFUNCTION() void OnTabMainClicked();
@@ -57,7 +58,8 @@ protected:
 
 	// === BUILDER METHODS (split from NativeOnInitialized) ===
 	void BuildRootLayout();
-	void BuildSidebar();
+	void BuildHeader();
+	void BuildFooter();
 	void BuildMainTab();
 	void BuildSpawnTab();
 	void BuildOptionsTab();
@@ -78,7 +80,7 @@ protected:
 	UButton* CreatePillButton(const FString& Name, const FString& Label, int32 FontSize);
 	void CreateSectionHeader(UVerticalBox* Container, const FString& Title);
 	void AddKeybindRow(UVerticalBox* Container, const FString& Action, const FString& Key);
-	void CreateNavButton(const FString& Name, const FString& Label, UButton*& OutBtn, UTextBlock*& OutTxt, UBorder*& OutAccent);
+	UButton* CreateTabButton(const FString& Name, const FString& Label, UImage*& OutUnderline);
 	UVerticalBox* CreateTabPanel(const FString& Name);
 	void CreateWingCard(const FString& Name, const FString& WingName, const FString& Specs, FLinearColor AccentColor, UButton*& OutBtn);
 
@@ -98,9 +100,10 @@ protected:
 	UPROPERTY() UTextBlock* TabSpawnTxt = nullptr;
 	UPROPERTY() UTextBlock* TabOptionsTxt = nullptr;
 
-	UPROPERTY() UBorder* TabMainAccent = nullptr;
-	UPROPERTY() UBorder* TabSpawnAccent = nullptr;
-	UPROPERTY() UBorder* TabOptionsAccent = nullptr;
+	// Active-tab underline strips under each top-nav button.
+	UPROPERTY() UImage* TabMainUnderline = nullptr;
+	UPROPERTY() UImage* TabSpawnUnderline = nullptr;
+	UPROPERTY() UImage* TabOptionsUnderline = nullptr;
 
 	UPROPERTY() UTextBlock* ResolutionScaleLabel = nullptr;
 	UPROPERTY() UTextBlock* CurrentQualityLabel = nullptr;
@@ -115,5 +118,8 @@ protected:
 	// === SHARED ROOT WIDGETS (created in BuildRootLayout, used by tab builders) ===
 	UPROPERTY() UCanvasPanel* RootCanvas = nullptr;
 	UPROPERTY() UCanvasPanel* ContentCanvas = nullptr;
-	UPROPERTY() UVerticalBox* SidebarContentBox = nullptr;
+	UPROPERTY() UHorizontalBox* TabButtonRow = nullptr;
+	UPROPERTY() UBorder* HeaderBandBorder = nullptr;
+	UPROPERTY() UBorder* FooterBandBorder = nullptr;
+	UPROPERTY() UButton* ResumeButton = nullptr;
 };

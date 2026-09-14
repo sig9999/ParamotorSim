@@ -1,15 +1,22 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ParamotorPlayerController.h"
+#include "ParamotorLogging.h"
 #include "UW_PauseMenu.h"
 #include "UW_FlightHUD.h"
 #include "ParamotorActor.h"
 #include "WingActor.h"
 #include "ChargerWingActor.h"
 #include "ParamotorCharacter.h"
+#include "CesiumWorldHelpers.h"
+#include "ParamotorGameMode.h"
+#include "ParamotorGameInstance.h"
+#include "ParamotorSaveGame.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Blueprint/UserWidget.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/FileHelper.h"
+#include "HAL/FileManager.h"
 #include "AudioDevice.h"
 
 AParamotorPlayerController::AParamotorPlayerController()
@@ -140,29 +147,6 @@ void AParamotorPlayerController::TogglePauseMenu()
 	}
 }
 
-void AParamotorPlayerController::SpawnParamotor()
-{
-	APawn* MyPawn = GetPawn();
-	if (!MyPawn) return;
-
-	FVector Forward = MyPawn->GetActorForwardVector();
-	FVector Start = MyPawn->GetActorLocation() + Forward * 200.0f;
-	float SpawnZ = FindGroundZ(Start, MyPawn);
-	FVector SpawnLoc = FVector(Start.X, Start.Y, SpawnZ);
-	FRotator SpawnRot = MyPawn->GetActorRotation();
-
-	// Spawn the ParamotorActor instead of individual static meshes
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-	SpawnedParamotorActor = GetWorld()->SpawnActor<AParamotorActor>(SpawnLoc, SpawnRot, SpawnParams);
-	if (SpawnedParamotorActor)
-	{
-		SpawnedActors.Add(SpawnedParamotorActor);
-		UE_LOG(LogTemp, Warning, TEXT("Spawned ParamotorActor at %s"), *SpawnLoc.ToString());
-	}
-}
-
 void AParamotorPlayerController::OnClickGrab()
 {
 	if (!SpawnedWingActor) return;
@@ -192,7 +176,7 @@ void AParamotorPlayerController::OnClickGrab()
 	float DistToWing = FVector::Dist2D(PlayerPos, SpawnedWingActor->GetActorLocation());
 	if (DistToWing > 800.0f)
 	{
-		UE_LOG(LogTemp, Log, TEXT("Too far from wing to grab (%.0f cm)"), DistToWing);
+		UE_LOG(LogParamotor, Log, TEXT("Too far from wing to grab (%.0f cm)"), DistToWing);
 		return;
 	}
 
@@ -213,11 +197,11 @@ void AParamotorPlayerController::OnClickGrab()
 	bool bGrabbed = SpawnedWingActor->GrabNearestEdge(GrabPos);
 	if (bGrabbed)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Grabbed wing via crosshair at %s"), *GrabPos.ToString());
+		UE_LOG(LogParamotor, Log, TEXT("Grabbed wing via crosshair at %s"), *GrabPos.ToString());
 	}
 	else
 	{
-		UE_LOG(LogTemp, Log, TEXT("Crosshair not pointing at grabbable wing"));
+		UE_LOG(LogParamotor, Log, TEXT("Crosshair not pointing at grabbable wing"));
 	}
 }
 
@@ -262,7 +246,7 @@ void AParamotorPlayerController::OnInteract()
 		}
 		else
 		{
-			UE_LOG(LogTemp, Log, TEXT("Walk to the wing bag to unpack it (%.0f cm away)"), DistToWing);
+			UE_LOG(LogParamotor, Log, TEXT("Walk to the wing bag to unpack it (%.0f cm away)"), DistToWing);
 		}
 		return;
 	}
@@ -280,7 +264,7 @@ void AParamotorPlayerController::OnInteract()
 		}
 		else
 		{
-			UE_LOG(LogTemp, Log, TEXT("Get closer to the paramotor to equip it (%.0f cm away)"), DistToParamotor);
+			UE_LOG(LogParamotor, Log, TEXT("Get closer to the paramotor to equip it (%.0f cm away)"), DistToParamotor);
 			return;
 		}
 	}
@@ -289,7 +273,12 @@ void AParamotorPlayerController::OnInteract()
 	if (SpawnedParamotorActor && SpawnedParamotorActor->IsEquipped()
 		&& SpawnedWingActor && SpawnedWingActor->IsSpread() && !SpawnedWingActor->IsConnected())
 	{
-		float DistToWing = FVector::Dist2D(PlayerPos, SpawnedWingActor->GetActorLocation());
+		// The pilot clips the risers at the pile on the pilot side of the
+		// layout — measure range to the riser pile, not the canopy (the
+		// actor origin sits at the canopy ~7.5m out).
+		const FVector PilePos = SpawnedWingActor->GetActorLocation()
+			+ SpawnedWingActor->GetActorForwardVector() * 450.0f;
+		float DistToWing = FVector::Dist2D(PlayerPos, PilePos);
 		if (DistToWing < 600.0f)
 		{
 			// Get carabiner positions from the paramotor's wing clip rings
@@ -301,16 +290,16 @@ void AParamotorPlayerController::OnInteract()
 			// Pilot weight: character mass + paramotor mass + fuel mass
 			float CharMass = 80.0f;
 			if (auto* MC = Char->GetCharacterMovement()) CharMass = FMath::Max(50.0f, MC->Mass);
-			float ParamotorMass = (SpawnedParamotorActor) ? 25.0f : 0.0f;
+			float ParamotorMass = (SpawnedParamotorActor) ? SpawnedParamotorActor->GetParamotorMassKg() : 0.0f;
 			float FuelMass = 5.0f;
 			SpawnedWingActor->SetPilotWeight(CharMass + ParamotorMass + FuelMass);
 
-			UE_LOG(LogTemp, Warning, TEXT("Risers connected to paramotor (pilot weight: %.0f kg, max: %.0f kg)"),
+			UE_LOG(LogParamotor, Log, TEXT("Risers connected to paramotor (pilot weight: %.0f kg, max: %.0f kg)"),
 				SpawnedWingActor->GetPilotWeight(), SpawnedWingActor->GetMaxTakeoffWeight());
 		}
 		else
 		{
-			UE_LOG(LogTemp, Log, TEXT("Walk to the wing to connect risers (%.0f cm away)"), DistToWing);
+			UE_LOG(LogParamotor, Log, TEXT("Walk to the wing to connect risers (%.0f cm away)"), DistToWing);
 		}
 		return;
 	}
@@ -374,7 +363,7 @@ void AParamotorPlayerController::OnTrimmerFastPressed()
 	{
 		// Move trimmer target toward full fast (+1.0)
 		SpawnedWingActor->SetTrimmerTarget(SpawnedWingActor->GetTrimmerTargetPos() + 0.5f);
-		UE_LOG(LogTemp, Warning, TEXT("Trimmer: FAST → %.2f (%s)"),
+		UE_LOG(LogParamotor, Log, TEXT("Trimmer: FAST → %.2f (%s)"),
 			SpawnedWingActor->GetTrimmerTargetPos(), *SpawnedWingActor->GetTrimmerLabel());
 	}
 }
@@ -385,7 +374,7 @@ void AParamotorPlayerController::OnTrimmerSlowPressed()
 	{
 		// Move trimmer target toward full slow (-1.0)
 		SpawnedWingActor->SetTrimmerTarget(SpawnedWingActor->GetTrimmerTargetPos() - 0.5f);
-		UE_LOG(LogTemp, Warning, TEXT("Trimmer: SLOW → %.2f (%s)"),
+		UE_LOG(LogParamotor, Log, TEXT("Trimmer: SLOW → %.2f (%s)"),
 			SpawnedWingActor->GetTrimmerTargetPos(), *SpawnedWingActor->GetTrimmerLabel());
 	}
 }
@@ -454,7 +443,7 @@ void AParamotorPlayerController::OnToggleSeat()
 	if (SpawnedWingActor && SpawnedWingActor->IsFlying())
 	{
 		SpawnedWingActor->ToggleSeat();
-		UE_LOG(LogTemp, Warning, TEXT("Seat toggled — seated: %s"), SpawnedWingActor->IsSeated() ? TEXT("YES") : TEXT("NO"));
+		UE_LOG(LogParamotor, Log, TEXT("Seat toggled — seated: %s"), SpawnedWingActor->IsSeated() ? TEXT("YES") : TEXT("NO"));
 	}
 }
 
@@ -464,7 +453,7 @@ void AParamotorPlayerController::OnHangPointBack()
 	if (SpawnedWingActor && SpawnedWingActor->IsFlying())
 	{
 		SpawnedWingActor->AdjustHangPoint(-0.1f);
-		UE_LOG(LogTemp, Log, TEXT("Hang point back: %.2f"), SpawnedWingActor->GetHangPointOffset());
+		UE_LOG(LogParamotor, Log, TEXT("Hang point back: %.2f"), SpawnedWingActor->GetHangPointOffset());
 	}
 }
 
@@ -474,7 +463,7 @@ void AParamotorPlayerController::OnHangPointForward()
 	if (SpawnedWingActor && SpawnedWingActor->IsFlying())
 	{
 		SpawnedWingActor->AdjustHangPoint(0.1f);
-		UE_LOG(LogTemp, Log, TEXT("Hang point forward: %.2f"), SpawnedWingActor->GetHangPointOffset());
+		UE_LOG(LogParamotor, Log, TEXT("Hang point forward: %.2f"), SpawnedWingActor->GetHangPointOffset());
 	}
 }
 
@@ -487,7 +476,7 @@ void AParamotorPlayerController::OnFreeCamPressed()
 		MyPawn->DisableInput(this);
 	}
 	SetInputMode(FInputModeGameOnly());
-	UE_LOG(LogTemp, Log, TEXT("Free cam activated"));
+	UE_LOG(LogParamotor, Log, TEXT("Free cam activated"));
 }
 
 void AParamotorPlayerController::OnFreeCamReleased()
@@ -499,7 +488,7 @@ void AParamotorPlayerController::OnFreeCamReleased()
 		MyPawn->EnableInput(this);
 	}
 	SetInputMode(FInputModeGameOnly());
-	UE_LOG(LogTemp, Log, TEXT("Free cam deactivated"));
+	UE_LOG(LogParamotor, Log, TEXT("Free cam deactivated"));
 }
 
 void AParamotorPlayerController::UpdateRotation(float DeltaTime)
@@ -552,6 +541,55 @@ void AParamotorPlayerController::Tick(float DeltaTime)
 
 	APawn* CachedPawn = GetPawn();
 
+#if WITH_EDITOR || UE_BUILD_DEVELOPMENT
+	// Dev file-pipe — automation writes a console command to ps_cmd.txt and
+	// we exec it here. Window focus isn't required (synthetic input can't
+	// always reach the game window after repeated kills/relaunches).
+	CmdPollT += DeltaTime;
+	if (CmdPollT >= 0.5f)
+	{
+		CmdPollT = 0.0f;
+		const TCHAR* CmdFile = TEXT("C:\\DevinTools\\ps_cmd.txt");
+		FString Cmd;
+		if (FFileHelper::LoadFileToString(Cmd, CmdFile))
+		{
+			Cmd.TrimStartAndEndInline();
+			IFileManager::Get().Delete(CmdFile);
+			if (!Cmd.IsEmpty())
+			{
+				UE_LOG(LogParamotor, Warning, TEXT("PsFileCmd: %s"), *Cmd);
+				ConsoleCommand(Cmd);
+			}
+		}
+	}
+#endif
+
+	// Geodetic teleport — one frame after the georeference rebase, move the
+	// pawn to the destination and let the GameMode's settle loop land it.
+	if (bPendingLLTeleport && CachedPawn)
+	{
+		LLTeleportTimer -= DeltaTime;
+		if (LLTeleportTimer <= 0.0f)
+		{
+			bPendingLLTeleport = false;
+			FVector Dest = CesiumWorld::GeodeticToUnreal(GetWorld(), PendingLon, PendingLat, PendingAltM);
+			if (ACharacter* Ch = Cast<ACharacter>(CachedPawn))
+			{
+				if (UCharacterMovementComponent* Move = Ch->GetCharacterMovement())
+				{
+					Move->SetMovementMode(MOVE_Flying);
+					Move->StopMovementImmediately();
+					Move->GravityScale = 0.0f;
+				}
+			}
+			CachedPawn->TeleportTo(Dest, FRotator(PendingPitch, PendingYaw, 0.0f));
+			SetControlRotation(FRotator(PendingPitch, PendingYaw, 0.0f));
+			if (AParamotorGameMode* GM = Cast<AParamotorGameMode>(GetWorld()->GetAuthGameMode()))
+				GM->RequestGlobeSettle(Dest.Z);
+			UE_LOG(LogParamotor, Log, TEXT("PsFlyToLL: teleported to %.0f %.0f %.0f — settling"), Dest.X, Dest.Y, Dest.Z);
+		}
+	}
+
 	UpdateThrottle(DeltaTime);
 	UpdateGrabPosition(CachedPawn);
 	UpdateWingRig(DeltaTime, CachedPawn);
@@ -568,6 +606,13 @@ void AParamotorPlayerController::UpdateThrottle(float DeltaTime)
 	if (State == EEngineState::Running || State == EEngineState::Cranking)
 	{
 		float CurrentThrottle = SpawnedParamotorActor->GetThrottle();
+
+		// Dev latch: PsEngine holds a fixed throttle for scripted testing.
+		if (DevThrottleHold >= 0.0f)
+		{
+			SpawnedParamotorActor->SetThrottle(DevThrottleHold);
+			return;
+		}
 
 		// Throttle trigger speed: real Moster 185 trigger moves full travel in ~0.3s
 		// Rate = 1/0.3 ≈ 3.3/s (spring-return trigger with finger force)
@@ -715,153 +760,7 @@ void AParamotorPlayerController::UpdateWingRig(float DeltaTime, APawn* CachedPaw
 	{
 		IKLogTimer = 0.0f;
 		FVector CharPos = Char->GetActorLocation();
-		UE_LOG(LogTemp, Warning, TEXT("IK: CharPos=%s L_Target=%s R_Target=%s"),
+		UE_LOG(LogParamotor, Log, TEXT("IK: CharPos=%s L_Target=%s R_Target=%s"),
 			*CharPos.ToString(), *PilotLeftTarget.ToString(), *PilotRightTarget.ToString());
 	}
-}
-
-// ============================================================
-// Spawn helpers
-// ============================================================
-float AParamotorPlayerController::FindGroundZ(FVector Start, APawn* IgnorePawn)
-{
-	FHitResult Hit;
-	FCollisionQueryParams QueryParams;
-	if (IgnorePawn) QueryParams.AddIgnoredActor(IgnorePawn);
-	FVector TraceEnd = Start - FVector(0, 0, 500.0f);
-	if (GetWorld()->LineTraceSingleByChannel(Hit, Start, TraceEnd, ECC_Visibility, QueryParams))
-	{
-		return Hit.Location.Z;
-	}
-	return 0.0f;
-}
-
-void AParamotorPlayerController::SpawnTestWing()
-{
-	APawn* MyPawn = GetPawn();
-	if (!MyPawn) return;
-
-	// If wing already exists, destroy it first
-	if (SpawnedWingActor)
-	{
-		SpawnedActors.Remove(SpawnedWingActor);
-		SpawnedWingActor->Destroy();
-		SpawnedWingActor = nullptr;
-	}
-
-	FVector Forward = MyPawn->GetActorForwardVector();
-	FVector Backward = -Forward;
-	FVector Start = MyPawn->GetActorLocation() + Backward * 500.0f;
-
-	float SpawnZ = FindGroundZ(Start, MyPawn) + 5.0f;
-	FVector SpawnLoc = FVector(Start.X, Start.Y, SpawnZ);
-	FRotator SpawnRot = FRotator(0.0f, MyPawn->GetActorRotation().Yaw, 0.0f);
-
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-	// Use deferred spawn so we can set wing model before BeginPlay runs
-	FTransform SpawnTransform(SpawnRot, SpawnLoc);
-	SpawnedWingActor = GetWorld()->SpawnActorDeferred<AWingActor>(AChargerWingActor::StaticClass(), SpawnTransform, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-	if (SpawnedWingActor)
-	{
-		// Apply MacPara Charger 25M specs BEFORE FinishSpawning (BeginPlay reads these)
-		SpawnedWingActor->WingModel.Name = TEXT("MacPara Charger 25M");
-		SpawnedWingActor->WingModel.WingArea = 25.43f;
-		SpawnedWingActor->WingModel.MaxTakeoffWeight = 137.0f;
-		SpawnedWingActor->WingModel.WingWeight = 5.6f;
-		SpawnedWingActor->WingModel.CL0 = 0.50f;
-		SpawnedWingActor->WingModel.CLMax = 1.45f;
-		SpawnedWingActor->WingModel.CD0 = 0.035f;
-		SpawnedWingActor->WingModel.AR = 5.14f;
-		SpawnedWingActor->WingModel.StallAoA = 16.0f;
-		SpawnedWingActor->WingModel.TrimAoA = 1.5f;
-
-		SpawnedWingActor->FinishSpawning(SpawnTransform);
-
-		SpawnedActors.Add(SpawnedWingActor);
-		UE_LOG(LogTemp, Warning, TEXT("Spawned fresh Charger 1 25 (ChargerDynamics) at %s"), *SpawnLoc.ToString());
-	}
-}
-
-void AParamotorPlayerController::SpawnTestParamotor()
-{
-	APawn* MyPawn = GetPawn();
-	if (!MyPawn) return;
-
-	// If paramotor already exists, destroy it first
-	if (SpawnedParamotorActor)
-	{
-		SpawnedActors.Remove(SpawnedParamotorActor);
-		SpawnedParamotorActor->Destroy();
-		SpawnedParamotorActor = nullptr;
-	}
-
-	FVector Forward = MyPawn->GetActorForwardVector();
-	FVector Start = MyPawn->GetActorLocation() + Forward * 200.0f;
-
-	float SpawnZ = FindGroundZ(Start, MyPawn);
-	FVector SpawnLoc = FVector(Start.X, Start.Y, SpawnZ);
-	FRotator SpawnRot = MyPawn->GetActorRotation();
-
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-	// Use deferred spawn so we can set bUseTestFrame before BeginPlay runs
-	FTransform SpawnTransformP(SpawnRot, SpawnLoc);
-	SpawnedParamotorActor = GetWorld()->SpawnActorDeferred<AParamotorActor>(AParamotorActor::StaticClass(), SpawnTransformP, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-	if (SpawnedParamotorActor)
-	{
-		SpawnedParamotorActor->bUseTestFrame = true;
-		SpawnedParamotorActor->FinishSpawning(SpawnTransformP);
-		SpawnedActors.Add(SpawnedParamotorActor);
-		UE_LOG(LogTemp, Warning, TEXT("Spawned Test Paramotor (ParamotorTestFrame) at %s"), *SpawnLoc.ToString());
-	}
-}
-
-void AParamotorPlayerController::SpawnRider185()
-{
-	APawn* MyPawn = GetPawn();
-	if (!MyPawn) return;
-
-	// Clear any old spawned equipment first
-	ClearSpawnedActors();
-	SpawnedParamotorActor = nullptr;
-
-	FVector Forward = MyPawn->GetActorForwardVector();
-	FVector Start = MyPawn->GetActorLocation() + Forward * 250.0f;
-
-	float SpawnZ = FindGroundZ(Start, MyPawn);
-	FVector SpawnLoc = FVector(Start.X, Start.Y, SpawnZ);
-	
-	// Rider model faces -X in Blender, so add 180 deg to face the same way as the player
-	FRotator SpawnRot = MyPawn->GetActorRotation() + FRotator(0.0f, 180.0f, 0.0f);
-
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-	FTransform SpawnTransformR(SpawnRot, SpawnLoc);
-	SpawnedParamotorActor = GetWorld()->SpawnActorDeferred<AParamotorActor>(AParamotorActor::StaticClass(), SpawnTransformR, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-	if (SpawnedParamotorActor)
-	{
-		SpawnedParamotorActor->bUseRider185 = true;
-		SpawnedParamotorActor->FinishSpawning(SpawnTransformR);
-		SpawnedActors.Add(SpawnedParamotorActor);
-		UE_LOG(LogTemp, Warning, TEXT("Spawned Rider Moster 185 at %s"), *SpawnLoc.ToString());
-	}
-}
-
-void AParamotorPlayerController::ClearSpawnedActors()
-{
-	for (AActor* Actor : SpawnedActors)
-	{
-		if (Actor)
-		{
-			Actor->Destroy();
-		}
-	}
-	SpawnedActors.Empty();
-	SpawnedParamotorActor = nullptr;
-	SpawnedWingActor = nullptr;
-	UE_LOG(LogTemp, Warning, TEXT("Cleared all spawned actors"));
 }

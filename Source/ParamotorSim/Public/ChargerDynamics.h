@@ -1,3 +1,5 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -41,7 +43,9 @@ inline Result Evaluate(State& s,const Controls& c,V3 airVelocity,double rho,doub
  Result o;double v=airVelocity.length();o.airspeed=v;
  V3 forward={std::cos(s.yaw),std::sin(s.yaw),0},right={-std::sin(s.yaw),std::cos(s.yaw),0};
  double along=airVelocity.dot(forward),vertical=airVelocity.z;
- double flightpath=std::atan2(vertical,std::max(.5,along));o.aoa=s.pitch-flightpath;
+ // A grounded kite has no flight path — turbulence/thermal vertical air
+ // motion must not poison the intake AoA gate while laying out.
+ double flightpath=grounded?0.:std::atan2(vertical,std::max(.5,along));o.aoa=s.pitch-flightpath;
  V3 dragdir=airVelocity.unit()*-1.;V3 up={0,0,1};
  V3 lift0=(up-airVelocity.unit()*up.dot(airVelocity.unit())).unit();
  V3 liftdir=(lift0*std::cos(s.roll)+right*std::sin(s.roll)).unit();

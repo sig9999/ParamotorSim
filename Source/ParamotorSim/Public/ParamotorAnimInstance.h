@@ -1,3 +1,5 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
 #pragma once
 
 #include "CoreMinimal.h"
@@ -25,6 +27,10 @@ struct FParamotorAnimProxy : public FAnimInstanceProxy
 	float RightArmRaise = 0.0f;
 	float LeftArmPull = 0.0f;
 	float RightArmPull = 0.0f;
+	float SitAmount = 0.0f;   // 0 = standing, 1 = fully seated in harness
+	float KiteAmount = 0.0f;  // 0 = upright, 1 = braced into riser pull
+	float AirAmount = 0.0f;   // 0 = grounded, 1 = airborne jump/fall pose
+	float AirTuck = 0.0f;     // -0.5..1 — knees tuck rising, extend falling
 
 	// Current animation to play
 	UAnimSequence* CurrentAnim = nullptr;
@@ -34,6 +40,9 @@ struct FParamotorAnimProxy : public FAnimInstanceProxy
 
 private:
 	void ApplyArmIK(FPoseContext& Context, bool bLeftArm, FVector TargetPos, float Raise, float Pull);
+	void ApplySitPose(FPoseContext& Context, float Sit);
+	void ApplyKitePose(FPoseContext& Context, float Kite);
+	void ApplyAirPose(FPoseContext& Context, float Air, float Tuck);
 };
 
 UCLASS()

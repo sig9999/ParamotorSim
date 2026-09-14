@@ -1,3 +1,5 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
 // ============================================================
 // AirfoilPolar.cpp — NACA 4415 polar data definition
 // Defined here (not in the header) to avoid duplicating the

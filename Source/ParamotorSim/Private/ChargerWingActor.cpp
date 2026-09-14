@@ -1,4 +1,7 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
 #include "ChargerWingActor.h"
+#include "ParamotorLogging.h"
 #include "ChargerRigData.h"
 #include "ParamotorActor.h"
 #include "ParamotorGameInstance.h"
@@ -21,18 +24,34 @@ AChargerWingActor::AChargerWingActor(){
 void AChargerWingActor::BeginPlay(){
  AActor::BeginPlay();
  CachedGameInstance=GetGameInstance<UParamotorGameInstance>();
+ // Seed the base wind direction — UpdateDynamicWind drifts it from here.
+ // WindHeadingDegrees is meteorological "wind FROM" (compass, 0=N=+Y in
+ // this georeferenced ENU world). The direction vector is where the air
+ // moves TO: compass (h+180) → UE yaw (90-h).
+ if(CachedGameInstance)WindHeadingDegrees=CachedGameInstance->WindDirection;
+ WindDirection=FRotator(0,90.f-(WindHeadingDegrees+180.f),0).Vector();
  GroundHeight=GetActorLocation().Z;FallbackGroundHeight=GroundHeight-5;CanopyCenter=GetActorLocation();Dynamics.yaw=FMath::DegreesToRadians(GetActorRotation().Yaw);
  WingState=EWingState::Spread;CanopyMesh->SetVisibility(true);LineMesh->SetVisibility(true);BagMesh->SetVisibility(false);
  auto* Material=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/ChargerFresh/M_ChargerFabric.M_ChargerFabric"));
  if(!Material)Material=LoadObject<UMaterialInterface>(nullptr,TEXT("/Engine/EngineDebugMaterials/VertexColorMaterial.VertexColorMaterial"));
  CanopyMesh->SetMaterial(0,Material);LineMesh->SetMaterial(0,Material);
  InitGroundCloth();BuildSail();UpdateMeshes();
- UE_LOG(LogTemp,Display,TEXT("Fresh Charger initialized: 46 cells; independent reflex dynamics; legacy solver inactive"));
+ UE_LOG(LogParamotor,Display,TEXT("Fresh Charger initialized: 46 cells; independent reflex dynamics; legacy solver inactive"));
 }
 ACharacter* AChargerWingActor::Pilot() const{return ConnectedParamotor?Cast<ACharacter>(ConnectedParamotor->GetAttachParentActor()):nullptr;}
 void AChargerWingActor::EndPlay(const EEndPlayReason::Type Reason){if(bIsAirborne)RestoreCharacter(false);AActor::EndPlay(Reason);}
 void AChargerWingActor::Tick(float Dt){
  AActor::Tick(Dt);Accumulator+=FMath::Min(Dt,.1f);VisualTime+=Dt;
+ // Real atmosphere: METAR/live weather drives the wind model, thermals,
+ // flyability + cloudbase that the HUD reads. Replaces the old sine gusts.
+ InvalidateGroundZCache();
+ if(CachedGameInstance&&CachedGameInstance->WindDirection!=LastGIWindDir){
+  LastGIWindDir=CachedGameInstance->WindDirection;
+  WindHeadingDegrees=LastGIWindDir;
+  WindDirection=FRotator(0,90.f-(WindHeadingDegrees+180.f),0).Vector();
+ }
+ UpdateDynamicWind(Dt,CachedGameInstance?CachedGameInstance->WindGusts:0.f);
+ UpdateThermals(Dt);
  if(auto* PC=Cast<APlayerController>(UGameplayStatics::GetPlayerController(this,0));PC&&bRisersConnected){
   // Existing Q/E remain main brakes. V is speed bar; Z/C are independent tips.
   SetSpeedBar(PC->IsInputKeyDown(EKeys::V)?1.f:0.f);
@@ -51,16 +70,28 @@ void AChargerWingActor::Step(float Dt){
  LeftTrim=FMath::FInterpConstantTo(LeftTrim,LeftTrimTarget,Dt,.5f);RightTrim=FMath::FInterpConstantTo(RightTrim,RightTrimTarget,Dt,.5f);TrimmerPosition=(LeftTrim+RightTrim)*.5f;
  LeftBrakeAmount=FMath::FInterpTo(LeftBrakeAmount,LeftBrakeTarget,Dt,5.f);RightBrakeAmount=FMath::FInterpTo(RightBrakeAmount,RightBrakeTarget,Dt,5.f);
  Inputs.trim[0]=LeftTrim;Inputs.trim[1]=RightTrim;Inputs.brake[0]=LeftBrakeAmount;Inputs.brake[1]=RightBrakeAmount;Inputs.speedbar=SpeedBarAmount;Inputs.weightshift=WeightShift;Inputs.aLines=bLiftingALines;
- const double WindBase=CachedGameInstance?CachedGameInstance->WindSpeed:6.;
- const double Gust=CachedGameInstance?CachedGameInstance->WindGusts:0.;
- CurrentWindSpeed=FMath::Max(0.,WindBase+Gust*(.55*FMath::Sin(Elapsed*.71)+.25*FMath::Sin(Elapsed*1.93)));
- WindTurbulence=CurrentWindSpeed-WindBase;WindDirection=FRotator(0,WindHeadingDegrees,0).Vector();
  auto* Char=Pilot();FVector Velocity=Char?(bIsAirborne?FlightVelocity:Char->GetVelocity()):FVector::ZeroVector;
  if(!bRisersConnected){
   Dynamics.pressure[0]=Dynamics.pressure[1]=0;
   SimulateGroundCloth(Dt);SimulateLines(Dt);return;
  }
- FVector Air=Velocity-GetWindVector();
+ // Wind = modeled surface wind + vertical air motion: thermals lift, sink
+ // between them, and Dryden vertical turbulence (all m/s in member state).
+ FVector WindVec=GetWindVector();
+ {
+  const FVector Pos=Char?Char->GetActorLocation():GetActorLocation();
+  const float AltM=FMath::Max(0.f,(Pos.Z-GetCachedGroundZ(Pos))*.01f);
+  WindVec.Z+=(GetThermalLiftAtPosition(Pos,AltM)-GetThermalSinkAtPosition(Pos,AltM)+TurbVertState)*CM_PER_M;
+ }
+ FVector Air=Velocity-WindVec;
+ // Diag: inflation needs along>0 — log the alignment once a second.
+ if(bRisersConnected&&!bIsAirborne&&FMath::Fmod(Elapsed,1.0)<Dt)
+ {
+  const FVector Fwd=GetActorForwardVector();
+  UE_LOG(LogParamotor,Log,TEXT("WingDiag: wingYaw=%.0f fwd=(%.2f,%.2f) Air=(%.0f,%.0f,%.0f) along=%.1f press=%.2f kite=%.2f"),
+   GetActorRotation().Yaw,Fwd.X,Fwd.Y,Air.X,Air.Y,Air.Z,
+   FVector::DotProduct(Air,Fwd)*.01f,InflationProgress,KiteAngle);
+ }
  if(!bIsAirborne){Dynamics.yaw=FMath::DegreesToRadians(GetActorRotation().Yaw);Dynamics.pitch=.09;}
  Forces=Charger::Evaluate(Dynamics,Inputs,ChargerToSI(Air),Charger::Density(Char?Char->GetActorLocation().Z*.01:0),Dt,!bIsAirborne);
  LeftPressure=Dynamics.pressure[0];RightPressure=Dynamics.pressure[1];InflationProgress=(LeftPressure+RightPressure)*.5f;
@@ -79,6 +110,11 @@ void AChargerWingActor::Step(float Dt){
   WingState=InflationProgress>.7&&KiteAngle>1.25?EWingState::Inflated:(InflationProgress>.05?EWingState::Inflating:EWingState::Connected);
   if(Char&&InflationProgress>.3){
    FVector Pull=ChargerToUE(Forces.drag)*FMath::Sin(KiteAngle);
+   // A laid-out wing drags the pilot toward a launch run — but the pull
+   // can't exceed what a braced pilot resists (~14 kgf). Uncapped drag in
+   // a gust was knocking the pilot over and dragging him airborne.
+   const double MaxPull=140.;
+   if(Pull.SizeSquared()>MaxPull*MaxPull)Pull=Pull.GetSafeNormal()*MaxPull;
    Char->GetCharacterMovement()->AddForce(Pull);
   }
   if(bEnableFlight&&Char&&WingState==EWingState::Inflated&&DebugWeightSupport>1.02&&FVector::DotProduct(Air,Char->GetActorForwardVector())>500)EnterFlight();
@@ -250,7 +286,10 @@ void AChargerWingActor::UpdateMeshes(){
   for(int End=0;End<2;++End)for(int J=0;J<4;++J){FVector Off=N*FMath::Cos(J*PI/2)*(Strap?1.2:1.)+V*FMath::Sin(J*PI/2)*(Strap?.15:1.);LineVertices.Add((End?B:A)+Off*Radius);LineNormals.Add(Off.GetSafeNormal());LineColors.Add(Color);LineUV.Add(FVector2D(J*.25,End));LineTangents.Add(FProcMeshTangent(Axis,false));}
   for(int J=0;J<4;++J){int K=(J+1)%4;LineTriangles.Append({Base+J,Base+K,Base+K+4,Base+J,Base+K+4,Base+J+4});}
  };
- for(int I=0;I<LinePaths.Num();++I){const auto& E=ChargerData::Edges[I];const auto& P=LinePaths[I];for(int J=1;J<P.Num();++J)Tube(NodePositions[P[J-1]],NodePositions[P[J]],E.Radius*100,E.Color==0?FLinearColor(.8,.025,.009):E.Color==1?FLinearColor(.74,.67,.18):FLinearColor(.9,.21,.015));}
+ // Line colors from the Blender materials: 0 = M_LineRed (A-lines, U=.12),
+ // 1 = M_LineWhite (B/C/D mids), 2 = M_LineYellow (trailing edge/brakes).
+ // Real radii are ~1mm — render x3 so the set reads on the ground.
+ for(int I=0;I<LinePaths.Num();++I){const auto& E=ChargerData::Edges[I];const auto& P=LinePaths[I];for(int J=1;J<P.Num();++J)Tube(NodePositions[P[J-1]],NodePositions[P[J]],E.Radius*100*3.0,E.Color==0?FLinearColor(.8,.1,.1):E.Color==1?FLinearColor(.9,.9,.85):FLinearColor(.9,.75,.1));}
  for(int Side:{-1,1}){
   FVector Pivot=bRisersConnected?(Side<0?LeftCarabinerPos:RightCarabinerPos):RiserPoint(Side,0)-GetActorForwardVector()*52.5;
   FVector SideAxis=GetActorRightVector(),HardwareUp=bRisersConnected?FVector::UpVector:GetActorForwardVector();FLinearColor Metal(.35,.38,.40),Webbing(.025,.028,.03);

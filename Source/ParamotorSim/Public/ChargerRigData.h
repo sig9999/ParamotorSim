@@ -1,3 +1,5 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
 #pragma once
 namespace ChargerData {
 struct Node {double X,Y,Z,S,U;int Kind,Side,Row;};

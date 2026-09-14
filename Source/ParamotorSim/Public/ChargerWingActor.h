@@ -1,3 +1,5 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
 #pragma once
 #include "WingActor.h"
 #include "ChargerDynamics.h"
@@ -53,7 +55,7 @@ private:
  Charger::Result Forces;
  double Accumulator=0,Elapsed=0,VisualTime=0,KiteAngle=0,KiteRate=0;
  FVector FlightVelocity=FVector::ZeroVector,CanopyCenter=FVector::ZeroVector;
- float GroundHeight=0,LeftTrimTarget=0,RightTrimTarget=0,LastSharedTrim=0;
+ float GroundHeight=0,LeftTrimTarget=0,RightTrimTarget=0,LastSharedTrim=0,LastGIWindDir=-9999.f;
  float FallbackGroundHeight=0;
  bool bIndependentTrim=false,bMeshesCreated=false,bNodesInitialized=false;
  float SavedGravity=1,SavedAcceleration=2048,SavedAirControl=.35f;
